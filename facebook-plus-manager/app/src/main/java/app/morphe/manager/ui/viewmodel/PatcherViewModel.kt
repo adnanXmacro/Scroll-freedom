@@ -1,0 +1,1159 @@
+/*
+ * Copyright 2026 Morphe.
+ * https://github.com/MorpheApp/morphe-manager
+ *
+ * Original hard forked code:
+ * https://github.com/Jman-Github/Universal-ReVanced-Manager/blob/597b3173a004f5a9aae54326046dd7fd4c5b7777/app/src/main/java/app/revanced/manager/ui/viewmodel/PatcherViewModel.kt
+ *
+ * See the included NOTICE file for GPLv3 Section 7 terms that apply to Morphe contributions.
+ */
+
+package app.morphe.manager.ui.viewmodel
+
+import android.app.Application
+import android.content.Intent
+import android.content.pm.PackageInfo
+import android.net.Uri
+import android.os.Bundle
+import android.os.ParcelUuid
+import android.os.PowerManager
+import android.util.Log
+import androidx.activity.result.ActivityResult
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.autoSaver
+import androidx.compose.runtime.setValue
+import androidx.core.os.BundleCompat
+import androidx.lifecycle.*
+import androidx.lifecycle.viewmodel.compose.SavedStateHandleSaveableApi
+import androidx.lifecycle.viewmodel.compose.saveable
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import app.morphe.manager.BuildConfig
+import app.morphe.manager.R
+import app.morphe.manager.data.platform.Filesystem
+import app.morphe.manager.data.room.apps.installed.InstallType
+import app.morphe.manager.domain.installer.InstallerManager
+import app.morphe.manager.domain.manager.PatchOptionsPreferencesManager
+import app.morphe.manager.domain.manager.PreferencesManager
+import app.morphe.manager.domain.repository.*
+import app.morphe.manager.domain.worker.WorkerRepository
+import app.morphe.manager.patcher.patch.ApkArchitectureResolver
+import app.morphe.manager.patcher.patch.PatchBundleInfo
+import app.morphe.manager.patcher.patch.PatchLockState
+import app.morphe.manager.patcher.patch.PatchSourceRef
+import app.morphe.manager.patcher.split.SplitApkPreparer
+import app.morphe.manager.patcher.worker.PatcherWorker
+import app.morphe.manager.ui.model.*
+import app.morphe.manager.ui.model.navigation.Patcher
+import app.morphe.manager.ui.screen.patcher.PatcherErrorInfo
+import app.morphe.manager.ui.screen.shared.UserMessages
+import app.morphe.manager.util.*
+import app.morphe.manager.util.PatchSelectionUtils.restrictTo
+import app.morphe.patcher.patch.ApkArchitecture
+import app.morphe.patcher.patch.InstallerType
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.File
+import java.io.IOException
+import java.util.UUID
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+
+/**
+ * Log lines the error dialog already spells out field by field in its diagnostics card, dropped
+ * from the log it falls back to so the same values are not read twice.
+ */
+private val SummarisedLogPrefixes = listOf(
+    PatcherWorker.LOG_WORKER_PREFIX_BUILD,
+    PatcherWorker.LOG_WORKER_PREFIX_DEVICE,
+    PatcherWorker.LOG_WORKER_PREFIX_SOURCE
+)
+
+@OptIn(SavedStateHandleSaveableApi::class)
+class PatcherViewModel(
+    private val input: Patcher.ViewModelParams,
+    private val app: Application,
+    private val messages: UserMessages,
+    private val fs: Filesystem,
+    private val pm: PM,
+    private val workerRepository: WorkerRepository,
+    private val patchBundleRepository: PatchBundleRepository,
+    private val patchSelectionRepository: PatchSelectionRepository,
+    private val patchOptionsRepository: PatchOptionsRepository,
+    private val installedAppRepository: InstalledAppRepository,
+    private val prefs: PreferencesManager,
+    private val patchOptionsPrefs: PatchOptionsPreferencesManager,
+    private val originalApkRepository: OriginalApkRepository,
+    private val installerManager: InstallerManager,
+    private val savedStateHandle: SavedStateHandle
+) : ViewModel(), StepProgressProvider {
+
+    private val saveOriginalApkMutex = Mutex()
+
+    var exportMetadata by mutableStateOf<PatchedAppExportData?>(null)
+        private set
+
+    /** Formatted export file name derived from [exportMetadata]. */
+    val exportFileName: String by derivedStateOf {
+        val data = exportMetadata ?: PatchedAppExportData(
+            appName = packageName,
+            packageName = packageName,
+            appVersion = version ?: "unspecified"
+        )
+        ExportNameFormatter.format(data)
+    }
+    private var appliedSelection: PatchSelection = input.selectedPatches.mapValues { it.value.toSet() }
+    private var appliedOptions: Options = input.options
+    val patchedFromInstalledDevice: Boolean
+        get() = (selectedApp as? SelectedApp.Local)?.fromInstalledDevice == true
+
+    private var currentActivityRequest: Pair<CompletableDeferred<Boolean>, String>? by mutableStateOf(
+        null
+    )
+    val activityPromptDialog by derivedStateOf { currentActivityRequest?.second }
+
+    private var launchedActivity: CompletableDeferred<ActivityResult>? = null
+    private val launchActivityChannel = Channel<Intent>()
+    val launchActivityFlow = launchActivityChannel.receiveAsFlow()
+
+    private val _autoInstallChannel = Channel<Unit>(Channel.CONFLATED)
+    val autoInstallEvent: Flow<Unit> = _autoInstallChannel.receiveAsFlow()
+
+    private val _patchingFailedChannel = Channel<Unit>(Channel.CONFLATED)
+
+    /** Fires once a run fails, for the screen to open the error dialog on. A recreated screen does not hear it again. */
+    val patchingFailedEvent: Flow<Unit> = _patchingFailedChannel.receiveAsFlow()
+
+    /** Whether this run installs on its own, set before the event so the screen shows it coming. */
+    var autoInstallPending by mutableStateOf(false)
+        private set
+
+    var patchingCompletedAt: Long? = null
+        private set
+
+    var patchingCompletedInForeground: Boolean = false
+        private set
+
+    var showSuccessScreen: Boolean by mutableStateOf(false)
+        private set
+
+    // A finished run that arrived while the user was playing, waiting for them to be done
+    private var successScreenHeldBack = false
+    private var successScreenDeferred = false
+
+    // An auto-install waits for the success screen, so it never starts over a game still in play
+    private var autoInstallQueued = false
+
+    fun showSuccess() {
+        successScreenHeldBack = false
+        showSuccessScreen = true
+        startQueuedAutoInstall()
+    }
+
+    fun hideSuccessScreen() { showSuccessScreen = false }
+
+    /**
+     * Holds the automatic switch to the success screen back while the user is busy with something
+     * the run has no right to interrupt, currently a mini-game, and releases it again afterward.
+     *
+     * A run that finishes meanwhile is not lost: the progress screen turns its own action bar into
+     * an install button, and the screen appears on its own once [defer] goes back to false,
+     * bringing an auto-install that was waiting for it along.
+     */
+    fun deferSuccessScreen(defer: Boolean) {
+        successScreenDeferred = defer
+        if (!defer && successScreenHeldBack) showSuccess()
+    }
+
+    var isPatching: Boolean by mutableStateOf(true)
+        private set
+
+    private val selectedApp = input.selectedApp
+    val packageName = selectedApp.packageName
+    val version = selectedApp.version
+
+    /** Whether the build is mounted over the stock app rather than installed. */
+    val usingMountInstall = input.useMount
+
+    /**
+     * How the finished APK differs from the install this run was aimed at, or null when it lands
+     * on that install after all. The name a patch builds under exists only once it has run, so
+     * the output is the only place it can be read.
+     */
+    suspend fun renameWarning(): RenameWarning? = withContext(Dispatchers.IO) {
+        val target = input.targetPackageName ?: packageName
+        val result = pm.getPackageInfo(outputFile)?.packageName ?: return@withContext null
+        if (result == target) return@withContext null
+
+        // Patches rename an app for reasons of their own, and a build the user never asked to
+        // clone is still the app's only install however it ended up named
+        val bundles = scopedBundles()
+        if (!producedClone(result, sanitizeSelection(appliedSelection, bundles), bundles)) {
+            return@withContext null
+        }
+
+        RenameWarning(
+            targetPackageName = target,
+            resultPackageName = result,
+            // Asked of the device rather than the manager's records: what gets overwritten is
+            // whatever holds the name, tracked here or not
+            replacesExisting = pm.getPackageInfo(result) != null
+        )
+    }
+
+    /** The sources this run drew from, scoped to the app it started from. */
+    private suspend fun scopedBundles(): Map<Int, PatchBundleInfo.Scoped> =
+        patchBundleRepository.scopedBundleInfoFlow(
+            packageName,
+            input.selectedApp.version,
+            input.selectedApp.versionCode
+        ).first().associateBy { it.uid }
+
+    /**
+     * Whether this run built a clone rather than the app's own install, judged the same way here
+     * and where the result is recorded so the warning cannot contradict what gets stored.
+     */
+    private fun producedClone(
+        resultPackageName: String,
+        selection: PatchSelection,
+        bundles: Map<Int, PatchBundleInfo.Scoped>
+    ) = producesClone(
+        originalPackageName = packageName,
+        resultPackageName = resultPackageName,
+        selection = selection,
+        declaresPackageName = { bundleUid, patchName ->
+            bundles[bundleUid]?.patches?.firstOrNull { it.name == patchName }?.declaresPackageName == true
+        }
+    )
+
+    /**
+     * Non-null when the saved selection names patches no enabled source offers anymore, which
+     * the run is held on until the user says whether to go ahead without them.
+     */
+    data class MissingPatchWarningState(
+        val patchNames: List<String>
+    )
+    var missingPatchWarning by mutableStateOf<MissingPatchWarningState?>(null)
+        private set
+
+    /** Set once the user has agreed to patch without them, so the same question is asked once. */
+    private var missingPatchesAccepted = false
+
+    /** Goes ahead with the patches that are still there, leaving out the ones that are gone. */
+    fun continueWithoutMissingPatches() {
+        missingPatchesAccepted = true
+        missingPatchWarning = null
+
+        viewModelScope.launch { runPreflightCheck() }
+    }
+
+    fun dismissMissingPatchWarning() {
+        missingPatchWarning = null
+    }
+
+    var batteryOptimizationDialog by mutableStateOf(false)
+        private set
+
+    /**
+     * Non-null when one or more patch option paths cannot be read before patching starts.
+     *
+     * @param canClear Whether the values behind the failing paths can be dropped from the dialog.
+     *                 Only simple mode keeps them, expert mode edits them while selecting patches.
+     */
+    data class InaccessibleOptionPathsState(
+        val failures: List<PathValidationResult>,
+        val canClear: Boolean
+    )
+    var inaccessibleOptionPaths by mutableStateOf<InaccessibleOptionPathsState?>(null)
+        private set
+
+    fun dismissInaccessibleOptionPathsError() {
+        inaccessibleOptionPaths = null
+    }
+
+    /**
+     * Drops the saved option values behind the failing paths and resumes the check, so a run
+     * whose files are gone for good goes on with the defaults the patches declare.
+     */
+    fun clearInaccessibleOptionPaths() {
+        val failures = inaccessibleOptionPaths?.failures.orEmpty()
+        inaccessibleOptionPaths = null
+
+        viewModelScope.launch {
+            failures.forEach { failure ->
+                patchOptionsPrefs.clearOptionValue(packageName, failure.patchName, failure.optionKey)
+            }
+
+            runPreflightCheck()
+        }
+    }
+
+    /**
+     * Non-null when a bundle requires a newer morphe-patcher than the one bundled
+     * in this version of Morphe.
+     *
+     * @param requiredVersion  The minimum patcher version declared in the bundle.
+     * @param bundleName       The display name of the offending bundle.
+     */
+    data class IncompatiblePatcherVersionState(
+        val requiredVersion: String,
+        val bundleName: String,
+    )
+    var incompatiblePatcherVersion by mutableStateOf<IncompatiblePatcherVersionState?>(null)
+        private set
+
+    fun dismissIncompatiblePatcherVersion() {
+        incompatiblePatcherVersion = null
+    }
+
+    /**
+     * Called when the user acknowledges the storage permission warning and chooses
+     * to proceed anyway (e.g. after granting MANAGE_EXTERNAL_STORAGE in settings
+     * and returning to the app, or if they believe the path is accessible).
+     * Re-validates paths on IO dispatcher before starting the worker - if the
+     * user actually granted the permission, the paths will now be readable.
+     */
+    fun retryAfterPermission() {
+        inaccessibleOptionPaths = null
+        viewModelScope.launch {
+            runPreflightCheck()
+        }
+    }
+
+    /**
+     * Called when the user dismisses the battery optimization pre-flight dialog.
+     * Marks the preference so the dialog is never shown again and resumes the preflight check.
+     */
+    fun onBatteryOptimizationDialogResult() {
+        viewModelScope.launch {
+            prefs.batteryOptimizationRequested.update(true)
+            batteryOptimizationDialog = false
+            runPreflightCheck()
+        }
+    }
+
+    private var apkArchitecture: ApkArchitecture? = null
+
+    /**
+     * Patches the sources declare unavailable for [installerType] that the run left out, so the
+     * finished app can name what it was built without instead of leaving the user to spot the
+     * missing patch. One the user picked regardless of the install target is built in, so not named.
+     */
+    suspend fun unavailablePatchNames(installerType: InstallerType): List<String> {
+        // Kept once resolved, because the input a temporary APK was read from is gone by the time
+        // the install target changes and the list is asked for again
+        val architecture = apkArchitecture
+            ?: ApkArchitectureResolver.resolve(selectedApp, pm).also { apkArchitecture = it }
+
+        return scopedBundles().values
+            .asSequence()
+            .flatMap { bundle ->
+                val selected = appliedSelection[bundle.uid].orEmpty()
+                bundle.patches.filter { it.name !in selected }
+            }
+            .filter { it.lockState(installerType, architecture) == PatchLockState.LOCKED_OFF }
+            .map { it.displayName }
+            .distinct()
+            .sorted()
+            .toList()
+    }
+
+    suspend fun collectSelectedBundleMetadata(): List<PatchSourceRef> {
+        val globalBundles = patchBundleRepository.bundleInfoFlow.first()
+        val scopedBundles = scopedBundles()
+        val sanitizedSelection = sanitizeSelection(appliedSelection, scopedBundles)
+        val displayNames = patchBundleRepository.sources.first().associate { it.uid to it.displayTitle }
+
+        return sanitizedSelection.keys.mapNotNull { uid ->
+            val name = (displayNames[uid] ?: scopedBundles[uid]?.name ?: globalBundles[uid]?.name)
+                ?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            PatchSourceRef(
+                name = name,
+                version = globalBundles[uid]?.version?.takeIf { it.isNotBlank() }
+            )
+        }.distinctBy { it.name }
+    }
+
+    // Parsing the patched APK stalls a frame, and export reaches here from the main thread
+    private suspend fun buildExportMetadata(packageInfo: PackageInfo?): PatchedAppExportData? = withContext(Dispatchers.IO) {
+        val info = packageInfo ?: pm.getPackageInfo(outputFile) ?: return@withContext null
+        val label = runCatching { with(pm) { info.label() } }.getOrNull()
+        val versionName = info.versionName?.takeUnless { it.isBlank() } ?: version ?: "unspecified"
+        PatchedAppExportData(
+            appName = label,
+            packageName = info.packageName,
+            appVersion = versionName,
+            sources = collectSelectedBundleMetadata()
+        )
+    }
+
+    /**
+     * Collects app and bundle metadata to populate [PatcherErrorInfo] in the error dialog.
+     * Called as soon as patching fails so the dialog opens without an extra async wait, and
+     * before the dialog opens on a failed install.
+     */
+    suspend fun buildErrorInfo(): PatcherErrorInfo {
+        // Read from what the run started with, since a failed run leaves no output APK to name
+        val label = withContext(Dispatchers.IO) {
+            runCatching {
+                when (val selected = selectedApp) {
+                    is SelectedApp.Local -> pm.getPackageInfo(selected.file)
+                    else -> pm.getPackageInfo(packageName)
+                }?.let { with(pm) { it.label() } }
+            }.getOrNull()
+        }
+        val bundles = collectSelectedBundleMetadata()
+        return PatcherErrorInfo(
+            appName = label ?: packageName,
+            packageName = packageName,
+            appVersion = version ?: "unspecified",
+            patchCount = patchCount,
+            failedPatch = patchRun.failedPatch,
+            bundles = bundles,
+            stripsNativeLibs = prefs.stripUnusedNativeLibs.get()
+        )
+    }
+
+    private fun refreshExportMetadata() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val metadata = buildExportMetadata(null)
+            withContext(Dispatchers.Main) {
+                exportMetadata = metadata
+            }
+        }
+    }
+
+    private suspend fun ensureExportMetadata() {
+        if (exportMetadata != null) return
+        val metadata = buildExportMetadata(null) ?: return
+        withContext(Dispatchers.Main) {
+            exportMetadata = metadata
+        }
+    }
+
+    /** [exportFileName] once the metadata it is built from has been read, for a name used at once. */
+    suspend fun resolvedExportFileName(): String {
+        ensureExportMetadata()
+        return exportFileName
+    }
+
+    private val tempDir = savedStateHandle.saveable(key = "tempDir") {
+        fs.uiTempDir.resolve("installer").also {
+            it.deleteRecursively()
+            it.mkdirs()
+        }
+    }
+
+    private var _inputFile: File? = null
+    var inputFile: File?
+        get() = _inputFile
+        set(value) { _inputFile = value }
+
+    /**
+     * True when [inputFile] is owned by this VM and safe to drop after install.
+     */
+    val inputFileIsDisposable: Boolean
+        get() {
+            val file = inputFile ?: return false
+            // Files under originalApksDir back the repatch flow and outlive this VM.
+            val savedOriginalsRoot = fs.originalApksDir.absolutePath + File.separator
+            return !file.absolutePath.startsWith(savedOriginalsRoot) &&
+                    (selectedApp as? SelectedApp.Local)?.temporary == true
+        }
+
+    val outputFile = tempDir.resolve("output.apk")
+
+    // What the worker patches with, short of the patches the user agreed to go on without
+    private var runSelection by mutableStateOf(input.selectedPatches)
+
+    val patchCount get() = runSelection.values.sumOf { it.size }
+
+    private val restoredProgress: Bundle? = savedStateHandle[KEY_PROGRESS]
+
+    /**
+     * Step, log and progress state of this run. Shared with the patching screens through
+     * [PatchProgressSource] so the batch queue can render the very same UI, and restored
+     * from [SavedStateHandle] when the process was killed while the worker kept going.
+     */
+    val patchRun = PatchRunProgress(
+        context = app,
+        scope = viewModelScope,
+        totalPatches = patchCount,
+        splitStepActive = initialSplitRequirement(input.selectedApp),
+        restoredSteps = restoredProgress?.let {
+            BundleCompat.getParcelableArrayList(it, KEY_STEPS, Step::class.java)
+        },
+        restoredCompletedPatches = restoredProgress?.getInt(KEY_COMPLETED_PATCHES) ?: 0,
+        restoredFailedPatch = restoredProgress?.getString(KEY_FAILED_PATCH)
+    )
+
+    val steps: List<Step> get() = patchRun.steps
+
+    /** What the failed step reported, empty while the run has not failed or where it said nothing. */
+    val failureMessage: String
+        get() = steps.firstOrNull { it.state == State.FAILED }?.message.orEmpty()
+
+    /**
+     * The error as the error dialog spells it out. A failed step that says nothing falls back to
+     * the patching log, so the user always has something to act on.
+     */
+    val failureDetails: String
+        get() = failureMessage.ifBlank {
+            patchRun.logs
+                .filterNot { (_, message) -> SummarisedLogPrefixes.any { message.startsWith(it) } }
+                .joinToString("\n") { (level, message) -> "[$level] $message" }
+        }
+    val progress: Float get() = patchRun.progress
+    val patchesProgress get() = patchRun.patchesProgress
+
+    private val workManager = WorkManager.getInstance(app)
+    private val _patcherSucceeded = MutableStateFlow<Boolean?>(null)
+    val patcherSucceeded: StateFlow<Boolean?> = _patcherSucceeded.asStateFlow()
+    private var observeWorkerJob: Job? = null
+
+    private var patcherWorkerId: ParcelUuid?
+        get() = savedStateHandle["patcher_worker_id"]
+        set(value) {
+            if (value == null) {
+                savedStateHandle.remove<ParcelUuid>("patcher_worker_id")
+            } else {
+                savedStateHandle["patcher_worker_id"] = value
+            }
+        }
+
+    /** Patch sources collected during preflight, forwarded to the worker for logging. */
+    private var patchSourcesForLog: List<PatchSourceRef> = emptyList()
+
+    /** True when the current patching step has been running for over a minute. */
+    val showLongStepWarning: StateFlow<Boolean> = patchRun.showLongStepWarning
+
+    /** Notification and tour prompts raised after a successful install or export. */
+    val postPatchPrompts = PostPatchPrompts(app, prefs, viewModelScope)
+
+    init {
+        restoreOutcome()
+
+        // The pipeline and the outcome survive process death, so a run that continued in the
+        // worker while the UI was gone comes back exactly where it was left
+        savedStateHandle.setSavedStateProvider(KEY_PROGRESS) {
+            Bundle().apply {
+                putParcelableArrayList(KEY_STEPS, ArrayList(patchRun.steps))
+                putInt(KEY_COMPLETED_PATCHES, patchRun.completedPatches)
+                putString(KEY_FAILED_PATCH, patchRun.failedPatch)
+                putBoolean(KEY_SUCCESS_SCREEN, showSuccessScreen)
+                _patcherSucceeded.value?.let { putBoolean(KEY_SUCCEEDED, it) }
+            }
+        }
+
+        val existingId = patcherWorkerId?.uuid
+        if (existingId != null) {
+            observeWorker(existingId)
+        } else {
+            viewModelScope.launch { runPreflightCheck() }
+        }
+        patchRun.startStallWatch()
+    }
+
+    /**
+     * Puts back the outcome of a run that had already finished when the process was killed.
+     * Without it the screen resumes in its in-progress state and only catches up once [WorkInfo]
+     * arrives, which is what makes a long-finished run flick past the log screen on the way to
+     * the finished one.
+     */
+    private fun restoreOutcome() {
+        val progress = restoredProgress ?: return
+        if (!progress.containsKey(KEY_SUCCEEDED)) return
+
+        _patcherSucceeded.value = progress.getBoolean(KEY_SUCCEEDED)
+        showSuccessScreen = progress.getBoolean(KEY_SUCCESS_SCREEN)
+        isPatching = false
+    }
+
+    /**
+     * Runs the checks that stand between the screen and the worker, and starts the run when they
+     * all pass. Nothing runs while the user answers one, so the screen is held back until it does.
+     */
+    private suspend fun runPreflightCheck() {
+        isPatching = true
+        patchRun.resumeBeforeStart()
+
+        if (preflight()) return
+
+        isPatching = false
+        patchRun.holdBeforeStart()
+    }
+
+    /** The preflight checks themselves. False when one of them put a question on screen. */
+    private suspend fun preflight(): Boolean {
+        // Checked by name alone: a source that is gone, or one that dropped every patch picked
+        // from it, is exactly the case a fallback to the picked names would hide
+        val scopedBundles = scopedBundles()
+        val missing = input.selectedPatches.mapValues { (uid, patches) ->
+            patches - scopedBundles[uid]?.patches?.mapTo(mutableSetOf()) { it.name }.orEmpty()
+        }.filterValues { it.isNotEmpty() }
+        if (missing.isNotEmpty()) {
+            if (!missingPatchesAccepted) {
+                missingPatchWarning = MissingPatchWarningState(
+                    patchNames = missing.values.flatten().distinct().sorted()
+                )
+                return false
+            }
+            runSelection = input.selectedPatches
+                .mapValues { (uid, patches) -> patches - missing[uid].orEmpty() }
+                .filterValues { it.isNotEmpty() }
+            patchRun.totalPatches = patchCount
+        }
+
+        patchSourcesForLog = collectSelectedBundleMetadata()
+
+        // Check that all selected bundles are compatible with the patcher bundled in this
+        // version of the manager. If a bundle requires a newer patcher, block and show a dialog
+        // asking the user to update the manager app
+        val globalBundlesForCheck = patchBundleRepository.bundleInfoFlow.first()
+        appliedSelection.keys.forEach { uid ->
+            val bundle = globalBundlesForCheck[uid] ?: return@forEach
+            val required = bundle.patcherVersion ?: return@forEach
+            if (isPatcherOutdated(required, BuildConfig.PATCHER_VERSION)) {
+                incompatiblePatcherVersion = IncompatiblePatcherVersionState(
+                    requiredVersion = required,
+                    bundleName = bundle.name,
+                )
+                return false
+            }
+        }
+
+        // Expert mode carries its options with the run, simple mode keeps them per app
+        val options = if (prefs.useExpertMode.get()) {
+            input.options
+        } else {
+            patchOptionsPrefs.exportPatchOptions(packageName)
+        }
+
+        // Validate any file-system paths supplied as patch options before handing off to the worker
+        val pathFailures = withContext(Dispatchers.IO) { validateOptionPaths(options.restrictTo(runSelection)) }
+        if (pathFailures.isNotEmpty()) {
+            inaccessibleOptionPaths = InaccessibleOptionPathsState(
+                failures = pathFailures,
+                canClear = !prefs.useExpertMode.get()
+            )
+            return false
+        }
+
+        val powerManager = app.getSystemService(PowerManager::class.java)
+        if (prefs.useExpertMode.get() && !powerManager.isIgnoringBatteryOptimizations(app.packageName) && !prefs.batteryOptimizationRequested.get()) {
+            batteryOptimizationDialog = true
+            return false
+        }
+
+        startWorker(options)
+        return true
+    }
+
+    private fun startWorker(options: Options) {
+        val workId = launchWorker(options)
+        patcherWorkerId = ParcelUuid(workId)
+        observeWorker(workId)
+    }
+
+    /**
+     * Save original APK file for future repatching.
+     * Called after successful patching, independent of installation method.
+     * For split APK archives: inputFile points to the merged mono-APK already saved to
+     * originalApksDir by the worker via onMergedApkReady - this call will detect the
+     * existing record and skip re-saving.
+     * For regular APK files, saves the APK itself.
+     *
+     * Thread-safe: uses mutex to prevent concurrent saves from observeWorker and persistPatchedApp.
+     */
+    private suspend fun saveOriginalApkIfNeeded() = saveOriginalApkMutex.withLock {
+        try {
+            // Determine which file to save.
+            // For SelectedApp.Local with a split archive: inputFile is updated to the merged
+            // mono-APK via setInputFile(merged=true) after prepareIfNeeded() completes, so
+            // we always use inputFile here - it already points to the correct file.
+            val fileToSave = when (val selected = input.selectedApp) {
+                is SelectedApp.Local -> inputFile ?: selected.file
+                else -> inputFile
+            }
+
+            if (fileToSave == null || !fileToSave.exists()) {
+                Log.w(TAG, "File to save doesn't exist, skipping original APK save")
+                return@withLock
+            }
+
+            // The original's own version, as the worker records a merged one: a patch may rename
+            // the patched build's. An archive has no package info, so the run's version stands in
+            val originalVersion = pm.getPackageInfo(fileToSave)?.versionName?.takeUnless { it.isBlank() }
+                ?: input.selectedApp.version
+                ?: "unknown"
+
+            // Does original already exist in repository?
+            val existing = originalApkRepository.get(packageName)
+            if (existing != null && existing.version == originalVersion) {
+                Log.d(TAG, "Original APK already exists in repository (version $originalVersion), skipping duplicate save")
+                return@withLock
+            }
+
+            // If we got here, we need to save the original
+            val moveSource = (input.selectedApp as? SelectedApp.Local)?.temporary == true
+            val savedFile = originalApkRepository.saveOriginalApk(
+                packageName = packageName,
+                version = originalVersion,
+                sourceFile = fileToSave,
+                moveSource = moveSource
+            )
+
+            if (savedFile != null) {
+                if (moveSource && !fileToSave.exists()) {
+                    inputFile = null
+                }
+                Log.i(TAG, "Original APK/archive saved: ${savedFile.name}")
+            }
+        } catch (e: Exception) {
+            // Don't fail patching if save fails
+            Log.w(TAG, "Failed to save original APK", e)
+        }
+    }
+
+    suspend fun persistPatchedApp(
+        currentPackageName: String?,
+        installType: InstallType
+    ): Boolean = withContext(NonCancellable + Dispatchers.IO) {
+        // NonCancellable: this body must run to completion even if the caller's scope is
+        // canceled mid-way, so the DB row never diverges from the installed APK
+        val installedPackageInfo = currentPackageName?.let(pm::getPackageInfo)
+        val patchedPackageInfo = pm.getPackageInfo(outputFile)
+        val packageInfo = patchedPackageInfo ?: installedPackageInfo
+        if (packageInfo == null) {
+            Log.e(TAG, "Failed to resolve package info for patched APK")
+            return@withContext false
+        }
+
+        // This call is safe, it will skip if already saved
+        saveOriginalApkIfNeeded()
+
+        val finalPackageName = packageInfo.packageName
+        val finalVersion = packageInfo.versionName?.takeUnless { it.isBlank() } ?: version ?: "unspecified"
+
+        val savePatchedEnabled = prefs.savePatchedApks.get()
+
+        // When patched APK retention is off and the user only exported the APK, treat the export
+        // as terminal: skip both the internal copy and the DB entry so the app is not surfaced
+        // as an installed patched app with no file to back it.
+        if (!savePatchedEnabled && installType == InstallType.SAVED) {
+            val metadata = buildExportMetadata(patchedPackageInfo ?: packageInfo)
+            withContext(Dispatchers.Main) {
+                exportMetadata = metadata
+            }
+            return@withContext true
+        }
+
+        // Save new version, addOrUpdate drops the copy of the version the record moves past
+        val savedCopy = fs.getPatchedAppFile(finalPackageName, finalVersion)
+        if (savePatchedEnabled) {
+            try {
+                savedCopy.parentFile?.mkdirs()
+                // Staged, so a reader that refreshes while the copy runs never opens a half
+                // written archive at the path the app already reports as the saved build
+                copyThroughStaging(outputFile, savedCopy)
+            } catch (error: IOException) {
+                if (installType == InstallType.SAVED) {
+                    Log.e(TAG, "Failed to copy patched APK for later", error)
+                    return@withContext false
+                } else {
+                    Log.w(TAG, "Failed to update saved copy for $finalPackageName", error)
+                }
+            }
+        }
+
+        val metadata = buildExportMetadata(patchedPackageInfo ?: packageInfo)
+        withContext(Dispatchers.Main) {
+            exportMetadata = metadata
+        }
+
+        // Scoped to the original package name, so every applied patch is still recognized once
+        // the run has built the app under a name of its own
+        val scopedBundlesForSelection = scopedBundles()
+        val sanitizedSelection = sanitizeSelection(appliedSelection, scopedBundlesForSelection)
+        val sanitizedOptions = sanitizeOptions(appliedOptions, scopedBundlesForSelection)
+
+        val selectionPayload = patchBundleRepository.snapshotSelection(sanitizedSelection)
+
+        val isClone = producedClone(finalPackageName, sanitizedSelection, scopedBundlesForSelection)
+
+        installedAppRepository.addOrUpdate(
+            finalPackageName,
+            packageName,
+            isClone,
+            finalVersion,
+            installType,
+            sanitizedSelection,
+            selectionPayload
+        )
+
+        persistConfiguration(
+            // A copy keeps a configuration of its own, while the app's install reads and writes
+            // the app's, whichever package name the patches ended up building it under
+            configurationPackageName = if (isClone) finalPackageName else packageName,
+            selection = sanitizedSelection,
+            options = sanitizedOptions,
+            bundles = scopedBundlesForSelection
+        )
+        appliedSelection = sanitizedSelection
+        appliedOptions = sanitizedOptions
+
+        true
+    }
+
+    /**
+     * Stores the patches and options this run was built with under the install it produced.
+     *
+     * A configuration describes an install, and every install of an app keeps its own. A run that
+     * produced a copy therefore leaves the one it started from untouched: what it writes is a
+     * copy, taken at the moment the copy came into being.
+     */
+    private suspend fun persistConfiguration(
+        configurationPackageName: String,
+        selection: PatchSelection,
+        options: Options,
+        bundles: Map<Int, PatchBundleInfo.Scoped>
+    ) {
+        patchSelectionRepository.updateSelection(
+            configurationPackageName,
+            selection,
+            scope = bundles.keys
+        )
+        patchOptionsRepository.saveOptions(configurationPackageName, options)
+
+        // Taken here as well as before patching, because a copy starts out with no snapshot of
+        // its own and would flag every patch it was just built with as new
+        bundles.forEach { (uid, bundle) ->
+            patchSelectionRepository.saveSeenPatches(
+                packageName = configurationPackageName,
+                bundleUid = uid,
+                patchNames = bundle.patches.mapTo(mutableSetOf()) { it.name }
+            )
+        }
+    }
+
+    override var downloadProgress by savedStateHandle.saveable(
+        key = "downloadProgress",
+        stateSaver = autoSaver()
+    ) {
+        mutableStateOf<Pair<Long, Long?>?>(null)
+    }
+        private set
+
+    /**
+     * True while an APK export is in progress. Observed by UI to disable the save button.
+     */
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
+
+    fun export(uri: Uri?) = viewModelScope.launch {
+        uri?.let { targetUri ->
+            if (_isSaving.value) return@let
+            _isSaving.value = true
+            try {
+                ensureExportMetadata()
+                finishExport(app.exportApkTo(outputFile, targetUri))
+            } finally {
+                _isSaving.value = false
+            }
+        }
+    }
+
+    /**
+     * Shared post-export logic: persists the patched app record, shows a message,
+     * and raises the post-patch prompts on success.
+     */
+    private suspend fun finishExport(exportSucceeded: Boolean) {
+        if (!exportSucceeded) {
+            messages.show(R.string.saved_app_export_failed)
+            return
+        }
+
+        val saved = persistPatchedApp(null, InstallType.SAVED)
+
+        if (!saved) {
+            messages.show(R.string.patched_app_save_failed_toast)
+        } else {
+            messages.show(R.string.save_apk_success)
+            delay(2.seconds)
+        }
+
+        if (saved) postPatchPrompts.trigger()
+    }
+
+    fun rejectInteraction() {
+        currentActivityRequest?.first?.complete(false)
+    }
+
+    fun allowInteraction() {
+        currentActivityRequest?.first?.complete(true)
+    }
+
+    fun handleActivityResult(result: ActivityResult) {
+        launchedActivity?.complete(result)
+    }
+
+    private fun launchWorker(options: Options): UUID =
+        workerRepository.launchExpedited<PatcherWorker, PatcherWorker.Args>(
+            buildWorkerArgs(options)
+        )
+
+    private fun buildWorkerArgs(options: Options): PatcherWorker.Args {
+        val selectedForRun = when (val selected = input.selectedApp) {
+            is SelectedApp.Local -> selected.copy(file = inputFile ?: selected.file)
+
+            else -> selected
+        }
+
+        val shouldPreserveInput =
+            selectedForRun is SelectedApp.Local && selectedForRun.temporary
+
+        return PatcherWorker.Args(
+            selectedForRun,
+            outputFile.path,
+            runSelection,
+            options,
+            patchRun.logger,
+            onPatchCompleted = { patchRun.onPatchCompleted() },
+            onPatchFailed = patchRun::onPatchFailed,
+            onPatchingRestarted = { patchRun.onRestart() },
+            setInputFile = { file, needsSplit, merged ->
+                val previous = inputFile
+                val storedFile = when {
+                    // The merged APK takes over from the archive the run started from
+                    merged || !shouldPreserveInput -> file
+                    // Copied on an attempt the system cut short, and still this run's input
+                    previous?.exists() == true -> previous
+                    else -> withContext(Dispatchers.IO) {
+                        File(fs.tempDir, "input-${System.currentTimeMillis()}.apk")
+                            .also { file.copyTo(it, overwrite = true) }
+                    }
+                }
+                if (merged && shouldPreserveInput && previous != null && previous != storedFile) {
+                    withContext(Dispatchers.IO) { previous.delete() }
+                }
+
+                withContext(Dispatchers.Main) {
+                    inputFile = storedFile
+                    patchRun.updateSplitRequirement(storedFile, needsSplit, merged)
+                }
+            },
+            onProgress = patchRun::onProgress,
+            patchSources = patchSourcesForLog,
+            useMount = usingMountInstall
+        )
+    }
+
+    private fun observeWorker(id: UUID) {
+        observeWorkerJob?.cancel()
+        observeWorkerJob = viewModelScope.launch {
+            workManager.getWorkInfoByIdFlow(id).collect { workInfo ->
+                // An outcome restored after process death was handled already, auto-install and
+                // failure dialog included, and a pruned record says nothing new either
+                if (workInfo?.state?.isFinished != false && _patcherSucceeded.value != null) return@collect
+
+                when (workInfo?.state) {
+                    WorkInfo.State.SUCCEEDED -> {
+                        patchRun.stopStallWatch()
+
+                        // Save original APK before deleting temporary file (blocking).
+                        // Launched independently so cancelling observeWorkerJob (new patch run)
+                        // does not interrupt cleanup that is already in progress.
+                        viewModelScope.launch(Dispatchers.IO) {
+                            try {
+                                saveOriginalApkIfNeeded()
+                            } finally {
+                                // The worker leaves a mount's input in place, while the copy made
+                                // of it is what the mount installs from and drops once done
+                                if (usingMountInstall) {
+                                    (input.selectedApp as? SelectedApp.Local)
+                                        ?.takeIf { it.temporary && it.file != inputFile }
+                                        ?.file?.delete()
+                                }
+                                withContext(Dispatchers.Main) {
+                                    if (!usingMountInstall) cleanupTemporaryInput()
+                                    refreshExportMetadata()
+                                    patchingCompletedAt = System.currentTimeMillis()
+                                    patchingCompletedInForeground = _patcherSucceeded.subscriptionCount.value > 0
+                                    isPatching = false
+                                    _patcherSucceeded.value = true
+                                    scheduleSuccessScreen()
+                                    scheduleAutoInstallIfNeeded()
+                                }
+                            }
+                        }
+                    }
+
+                    WorkInfo.State.FAILED -> {
+                        patchRun.stopStallWatch()
+                        isPatching = false
+                        _patcherSucceeded.value = false
+                        showSuccessScreen = true
+                        _patchingFailedChannel.trySend(Unit)
+                    }
+
+                    WorkInfo.State.RUNNING,
+                    WorkInfo.State.ENQUEUED,
+                    WorkInfo.State.BLOCKED -> {
+                        isPatching = true
+                        _patcherSucceeded.value = null
+                    }
+                    else -> _patcherSucceeded.value = null
+                }
+            }
+        }
+    }
+
+    /** What is left of the beat the progress screen holds a finished run for. */
+    private val successScreenDelay: Duration
+        get() {
+            val elapsed = patchingCompletedAt?.let { System.currentTimeMillis() - it } ?: 0L
+            return (2000L - elapsed).coerceAtLeast(0L).milliseconds
+        }
+
+    private fun scheduleSuccessScreen() = viewModelScope.launch {
+        delay(successScreenDelay)
+        if (successScreenDeferred) successScreenHeldBack = true else showSuccess()
+    }
+
+    // An install outlives this screen and reads output.apk until it is done
+    private var installStarted = false
+
+    /** Called as an install of the patched APK starts, which keeps it on disk past this screen. */
+    fun onInstallStarted() {
+        installStarted = true
+    }
+
+    /** Called once the installer has taken the auto-install over. */
+    fun autoInstallHandedOff() {
+        autoInstallPending = false
+    }
+
+    private fun scheduleAutoInstallIfNeeded() = viewModelScope.launch {
+        // A patch is free to rename the app, and the name it built under is the one being replaced
+        val target = withContext(Dispatchers.IO) { pm.getPackageInfo(outputFile)?.packageName }
+            ?: packageName
+        if (!installerManager.autoInstallAllowed(target, mount = usingMountInstall)) return@launch
+        autoInstallPending = true
+        // Started by the success screen rather than on a timer of its own: an install starting
+        // sooner puts the system dialog over a run still drawn as unfinished, or over a game
+        autoInstallQueued = true
+        if (showSuccessScreen) startQueuedAutoInstall()
+    }
+
+    private fun startQueuedAutoInstall() {
+        if (!autoInstallQueued) return
+        autoInstallQueued = false
+        _autoInstallChannel.trySend(Unit)
+    }
+
+    private fun initialSplitRequirement(selectedApp: SelectedApp): Boolean =
+        when (selectedApp) {
+            is SelectedApp.Local -> SplitApkPreparer.isSplitArchive(selectedApp.file)
+            else -> false
+        }
+
+    private fun sanitizeSelection(
+        selection: PatchSelection,
+        bundles: Map<Int, PatchBundleInfo.Scoped>
+    ): PatchSelection = buildMap {
+        selection.forEach { (uid, patches) ->
+            val bundle = bundles[uid]
+            if (bundle == null) {
+                // Keep unknown bundles so applied patches stay visible even if the source is missing.
+                if (patches.isNotEmpty()) put(uid, patches.toSet())
+                return@forEach
+            }
+
+            val valid = bundle.patches.map { it.name }.toSet()
+            val kept = patches.filter { it in valid }.toSet()
+            if (kept.isNotEmpty()) {
+                put(uid, kept)
+            } else if (patches.isNotEmpty()) {
+                // If everything was filtered out by compatibility, still keep the original set so
+                // the app info screen can show the applied bundle/patch names.
+                put(uid, patches.toSet())
+            }
+        }
+    }
+
+    private fun sanitizeOptions(
+        options: Options,
+        bundles: Map<Int, PatchBundleInfo.Scoped>
+    ): Options = buildMap {
+        options.forEach { (uid, patchOptions) ->
+            val bundle = bundles[uid] ?: return@forEach
+            val patches = bundle.patches.associateBy { it.name }
+            val filtered = buildMap {
+                patchOptions.forEach { (patchName, values) ->
+                    val patch = patches[patchName] ?: return@forEach
+                    val validKeys = patch.options?.map { it.key }?.toSet() ?: emptySet()
+                    val kept = if (validKeys.isEmpty()) values else values.filterKeys { it in validKeys }
+                    if (kept.isNotEmpty()) put(patchName, kept)
+                }
+            }
+            if (filtered.isNotEmpty()) put(uid, filtered)
+        }
+    }
+
+    /**
+     * Immediately cancels the patcher worker.
+     * Called when the user confirms cancellation so the worker stops before
+     * the ViewModel is cleared, preventing background CPU/RAM usage that causes UI jank.
+     */
+    fun cancelPatching() {
+        patcherWorkerId?.uuid?.let(workManager::cancelWorkById)
+    }
+
+    private fun cleanupTemporaryInput() {
+        if (input.selectedApp is SelectedApp.Local && input.selectedApp.temporary) {
+            // A merged split may already sit with the saved originals, which outlive the run
+            if (inputFileIsDisposable) inputFile?.delete()
+            inputFile = null
+            patchRun.updateSplitRequirement(null)
+        }
+    }
+
+    /**
+     * Stops any patching-completion tone that might still be playing.
+     * Called directly from the UI for an instant cutoff on Home tap, and again from
+     * [onCleared] as a fallback for every other way of leaving the screen.
+     */
+    fun stopCompletionSound() {
+        PatcherWorker.stopCompletionSound()
+    }
+
+    override fun onCleared() {
+        patcherWorkerId?.uuid?.let(workManager::cancelWorkById)
+        // A mount restores the stock app from the input, and drops it itself once done
+        if (!installStarted || !usingMountInstall) cleanupTemporaryInput()
+        stopCompletionSound()
+        patchRun.finish()
+
+        // An install left running is still reading output.apk, which the next run or a restart
+        // clears instead
+        if (!installStarted) tempDir.deleteRecursively()
+    }
+
+    private companion object {
+        private const val TAG = "Morphe Patcher"
+
+        private const val KEY_PROGRESS = "patch_progress"
+        private const val KEY_STEPS = "steps"
+        private const val KEY_COMPLETED_PATCHES = "completed_patches"
+        private const val KEY_FAILED_PATCH = "failed_patch"
+        private const val KEY_SUCCEEDED = "succeeded"
+        private const val KEY_SUCCESS_SCREEN = "success_screen"
+    }
+}

@@ -1,0 +1,214 @@
+/*
+ * Copyright 2026 Morphe.
+ * https://github.com/MorpheApp/morphe-manager
+ */
+
+package app.morphe.manager.ui.screen.settings.appearance
+
+import android.text.format.DateFormat
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
+import app.morphe.manager.R
+import app.morphe.manager.ui.screen.shared.*
+import app.morphe.manager.ui.theme.SeasonalEvent
+import app.morphe.manager.ui.theme.backgroundOver
+import app.morphe.manager.ui.viewmodel.RandomInterval
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.rounded.*
+import java.time.format.DateTimeFormatter
+
+/**
+ * Settings row naming the current background, opening [BackgroundPickerDialog] on tap.
+ */
+@Composable
+fun BackgroundSettingsItem(
+    selectedBackground: BackgroundType,
+    selectedInterval: RandomInterval,
+    onClick: () -> Unit
+) {
+    val name = stringResource(selectedBackground.displayNameResId)
+    SettingsItem(
+        onClick = onClick,
+        title = stringResource(R.string.settings_appearance_background),
+        subtitle = if (selectedBackground == BackgroundType.RANDOM) {
+            "$name · ${stringResource(selectedInterval.labelResId)}"
+        } else name,
+        leadingContent = { ThemedIcon(icon = backgroundIcon(selectedBackground)) }
+    )
+}
+
+/**
+ * Background animation picker. A pick applies at once and plays behind the dialog, so the dialog
+ * stays open to try another.
+ * RANDOM is one more tile. Below a divider sit the settings of the pick: how often RANDOM changes,
+ * and the parallax every background but NONE can take. Last comes the switch for seasonal themes,
+ * which put an event's own background over the pick while the event runs.
+ *
+ * @param resolvedRandomBackground The background RANDOM currently stands for, previewed while it
+ *        is the pick.
+ * @param seasonalEvent The event running today, whose background the dialog shows over the pick,
+ *        as the app does, with a notice of how long it stays.
+ */
+@Composable
+fun DialogHostScope.BackgroundPickerDialog(
+    selectedBackground: BackgroundType,
+    onBackgroundSelected: (BackgroundType) -> Unit,
+    selectedInterval: RandomInterval,
+    onIntervalSelected: (RandomInterval) -> Unit,
+    onDismiss: () -> Unit,
+    resolvedRandomBackground: BackgroundType?,
+    enableParallax: Boolean,
+    onParallaxToggle: () -> Unit,
+    seasonalThemes: Boolean,
+    seasonalEvent: SeasonalEvent?,
+    onSeasonalThemesToggle: () -> Unit,
+    matrixUnlocked: Boolean = false
+) {
+    val windowSize = rememberWindowSize()
+    val columns = when (windowSize.widthSizeClass) {
+        WindowWidthSizeClass.Compact -> 3
+        WindowWidthSizeClass.Medium -> 4
+        WindowWidthSizeClass.Expanded -> 5
+    }
+
+    val shownBackground = seasonalEvent.backgroundOver(selectedBackground, seasonalThemes)
+    val locale = LocalConfiguration.current.locales[0]
+    val seasonalNotice = seasonalEvent?.let { event ->
+        val pattern = DateFormat.getBestDateTimePattern(locale, "MMMMd")
+        stringResource(
+            R.string.settings_appearance_seasonal_background_notice,
+            stringResource(event.background.displayNameResId),
+            DateTimeFormatter.ofPattern(pattern, locale).format(event.endDate())
+        )
+    }
+
+    // Every type, minus the hidden ones still to be found and the ones only an event puts on
+    val gridTypes = BackgroundType.entries.filter {
+        it !in BackgroundType.SEASONAL && (matrixUnlocked || it !in BackgroundType.HIDDEN)
+    }
+
+    AppDialog(
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.settings_appearance_background),
+        description = stringResource(R.string.settings_appearance_background_description),
+        footer = {
+            AppDialogOutlinedButton(
+                text = stringResource(R.string.close),
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        backdrop = {
+            AnimatedBackground(
+                type = shownBackground,
+                resolvedType = resolvedRandomBackground,
+                enableParallax = enableParallax
+            )
+        }
+    ) {
+        // Spacing lives inside the blocks that come and go rather than between them, where a
+        // spacedBy gap would vanish in one frame while the surrounding block is still shrinking
+        Column {
+            // The dialog shows what the app shows, so a running event explains why that is not the pick
+            FoldingVisibility(visible = shownBackground != selectedBackground && seasonalNotice != null) {
+                Notice(
+                    text = seasonalNotice.orEmpty(),
+                    icon = MaterialSymbols.Rounded.Celebration,
+                    tone = SemanticTone.Primary,
+                    density = NoticeDensity.Compact,
+                    modifier = Modifier.padding(bottom = Defaults.SpaceSmall)
+                )
+            }
+
+            OptionGrid(items = gridTypes, columns = columns) { bgType, itemModifier ->
+                ModernIconOptionCard(
+                    selected = selectedBackground == bgType,
+                    onClick = { onBackgroundSelected(bgType) },
+                    icon = backgroundIcon(bgType),
+                    label = stringResource(bgType.displayNameResId),
+                    modifier = itemModifier,
+                    compact = true
+                )
+            }
+
+            // Settings of the pick itself, so NONE, having none, leaves the divider out as well
+            FoldingVisibility(visible = selectedBackground != BackgroundType.NONE) {
+                Column(modifier = Modifier.padding(top = Defaults.SpaceSmall)) {
+                    SettingsDivider(
+                        modifier = Modifier.padding(vertical = Defaults.SpaceExtraSmall),
+                        fullWidth = true
+                    )
+
+                    // How often RANDOM changes, shown only while it is the pick
+                    FoldingVisibility(visible = selectedBackground == BackgroundType.RANDOM) {
+                        // Vertical tiles so the interval labels never truncate
+                        OptionGroup(
+                            items = RandomInterval.entries,
+                            modifier = Modifier.padding(top = Defaults.SpaceSmall)
+                        ) { interval, shape, interactionSource, itemModifier ->
+                            ModernIconOptionCard(
+                                selected = selectedInterval == interval,
+                                onClick = { onIntervalSelected(interval) },
+                                icon = intervalIcon(interval),
+                                label = stringResource(interval.labelResId),
+                                modifier = itemModifier,
+                                compact = true,
+                                shape = shape,
+                                interactionSource = interactionSource
+                            )
+                        }
+                    }
+
+                    SettingsGroup(modifier = Modifier.padding(top = Defaults.SpaceSmall)) {
+                        SettingsSwitchItem(
+                            title = stringResource(R.string.settings_appearance_parallax_effect),
+                            subtitle = stringResource(R.string.settings_appearance_parallax_effect_description),
+                            icon = MaterialSymbols.Rounded.Screen_rotation,
+                            checked = enableParallax,
+                            onToggle = onParallaxToggle
+                        )
+                    }
+                }
+            }
+
+            // Kept out of the block above: an event also brings its own greetings, which a
+            // background of NONE does not switch off
+            SettingsGroup(modifier = Modifier.padding(top = Defaults.SpaceSmall)) {
+                SettingsSwitchItem(
+                    title = stringResource(R.string.settings_appearance_seasonal_themes),
+                    subtitle = stringResource(R.string.settings_appearance_seasonal_themes_description),
+                    icon = MaterialSymbols.Rounded.Celebration,
+                    checked = seasonalThemes,
+                    onToggle = onSeasonalThemesToggle
+                )
+            }
+        }
+    }
+}
+
+private fun backgroundIcon(type: BackgroundType): ImageVector = when (type) {
+    BackgroundType.CIRCLES   -> MaterialSymbols.Rounded.Circle
+    BackgroundType.RINGS     -> MaterialSymbols.Rounded.Adjust
+    BackgroundType.MESH      -> MaterialSymbols.Rounded.Grid_3x3
+    BackgroundType.SPACE     -> MaterialSymbols.Rounded.Auto_awesome
+    BackgroundType.SHAPES    -> MaterialSymbols.Rounded.Pentagon
+    BackgroundType.SNOW      -> MaterialSymbols.Rounded.Ac_unit
+    BackgroundType.HALLOWEEN -> MaterialSymbols.Rounded.Nights_stay
+    BackgroundType.FIREWORKS -> MaterialSymbols.Rounded.Flare
+    BackgroundType.GRID      -> MaterialSymbols.Rounded.Apps
+    BackgroundType.PARTICLES -> MaterialSymbols.Rounded.Bubble_chart
+    BackgroundType.LAVA      -> MaterialSymbols.Rounded.Water_drop
+    BackgroundType.MATRIX    -> MaterialSymbols.Rounded.Code
+    BackgroundType.NONE      -> MaterialSymbols.Rounded.Visibility_off
+    BackgroundType.RANDOM    -> MaterialSymbols.Rounded.Shuffle
+}
+
+private fun intervalIcon(interval: RandomInterval): ImageVector = when (interval) {
+    RandomInterval.ON_LAUNCH    -> MaterialSymbols.Rounded.Play_circle
+    RandomInterval.DAILY        -> MaterialSymbols.Rounded.Today
+    RandomInterval.EVERY_3_DAYS -> MaterialSymbols.Rounded.Date_range
+}

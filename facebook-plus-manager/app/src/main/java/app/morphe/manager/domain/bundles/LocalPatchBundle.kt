@@ -1,0 +1,87 @@
+/*
+ * Copyright 2026 Morphe.
+ * https://github.com/MorpheApp/morphe-manager
+ *
+ * Original hard forked code:
+ * https://github.com/Jman-Github/Universal-ReVanced-Manager/blob/597b3173a004f5a9aae54326046dd7fd4c5b7777/app/src/main/java/app/revanced/manager/domain/bundles/LocalPatchBundle.kt
+ *
+ * See the included NOTICE file for GPLv3 Section 7 terms that apply to Morphe contributions.
+ */
+
+package app.morphe.manager.domain.bundles
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.InputStream
+
+class LocalPatchBundle(
+    name: String,
+    uid: Int,
+    displayName: String?,
+    createdAt: Long?,
+    updatedAt: Long?,
+    error: Throwable?,
+    directory: File,
+    enabled: Boolean
+) : PatchBundleSource(name, uid, displayName, createdAt, updatedAt, error, directory, enabled) {
+    suspend fun replace(
+        patches: InputStream,
+        totalBytes: Long? = null,
+        onProgress: ((bytesRead: Long, totalBytes: Long?) -> Unit)? = null
+    ) {
+        withContext(Dispatchers.IO) {
+            installPatchBundle("Importing patch bundle") { staging ->
+                staging.outputStream().use { outputStream ->
+                    val buffer = ByteArray(256 * 1024)
+                    var readTotal = 0L
+                    while (true) {
+                        val read = patches.read(buffer)
+                        if (read == -1) break
+                        outputStream.write(buffer, 0, read)
+                        readTotal += read
+                        onProgress?.invoke(readTotal, totalBytes)
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun replaceFromTempFile(
+        tempFile: File,
+        totalBytes: Long? = null,
+        onProgress: ((bytesRead: Long, totalBytes: Long?) -> Unit)? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val target = patchesJarFile
+        target.parentFile?.mkdirs()
+        // Made read-only before the swap rather than after: the rename replaces the installed
+        // bundle in one step, so a concurrent reader never sees a writable dex container
+        // Checked before the swap, so a broken file never takes the place of a working bundle
+        requireNonEmptyBundleFile(tempFile, "Importing patch bundle")
+        tempFile.setReadOnly()
+        if (!tempFile.renameTo(target)) {
+            runCatching { tempFile.setWritable(true, true) }
+            return@withContext false
+        }
+        onProgress?.invoke(0L, totalBytes)
+        return@withContext true
+    }
+
+    override fun copy(
+        error: Throwable?,
+        name: String,
+        displayName: String?,
+        createdAt: Long?,
+        updatedAt: Long?,
+        enabled: Boolean
+    ) = LocalPatchBundle(
+        name,
+        uid,
+        displayName,
+        createdAt,
+        updatedAt,
+        error,
+        directory,
+        enabled
+    )
+}

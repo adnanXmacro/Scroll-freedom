@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 9.4.0" type="baseline" client="gradle" dependencies="false" name="AGP (9.4.0)" variant="all" version="9.4.0">
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `sources_dialog_duplicate_name_error`; found both 1 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;sources_dialog_duplicate_name_error&quot;>Извор са именом %s већ постоји&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-sr-rSP/strings.xml"
+            line="158"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="167"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `home_invalid_signature_message`; found both 0 here and 1 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;home_invalid_signature_message&quot;>Pasiringtas APK rinkinys nesutampa su tikėtinu skaitmenimis sertifikatu. Jis galbētč buvo modifikuotas arba yra nepatikimos šaltinio.&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-lt-rLT/strings.xml"
+            line="193"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="308"
+            column="5"
+            message="Conflicting number of arguments (1) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `home_app_info_repatch_no_original_apk`; found both 1 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;home_app_info_repatch_no_original_apk&quot;>Неуспешно избришување на извор \&quot;%s\&quot;. Ова не може да се врати&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-mk-rMK/strings.xml"
+            line="267"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="450"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `home_simple_bundle_select_title`; found both 1 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;home_simple_bundle_select_title&quot;>%s bekreftet ikke installasjonen. Sjekk den andre appen og prøv igjen&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-nb-rNO/strings.xml"
+            line="326"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="340"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `settings_appearance_translations_info_title`; found both 1 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;settings_appearance_translations_info_title&quot;>नवीन भाषांचे भाषांतर करण्यासाठी किंवा विद्यमान भाषांतरे सुधारण्यासाठी, येथे भेट द्या %s&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-mr-rIN/strings.xml"
+            line="633"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="735"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `settings_system_export_source_data_fail`; found both 1 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;settings_system_export_source_data_fail&quot;>Gagal membaca log (kod keluar %s)&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-ms-rMY/strings.xml"
+            line="634"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="1149"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `settings_system_original_apks_deleted`; found both 1 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;settings_system_original_apks_deleted&quot;>Manbalarni yuklab olishda xatolik: %s&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-uz-rUZ/strings.xml"
+            line="1000"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="1129"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `settings_system_original_apks_delete_title`; found both 1 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;settings_system_original_apks_delete_title&quot;>Da li zaista želite da obrišete originalni APK za %s? Nećete moći repatchirati bez pružnog novog APK fajla.&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-sr-rCS/strings.xml"
+            line="1023"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="1130"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `settings_system_patched_apks_deleted`; found both 1 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;settings_system_patched_apks_deleted&quot;>%s के लिए सहेजे गए पैच किए गए एपीके सफलतापूर्वक हटाए गए&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-hi-rIN/strings.xml"
+            line="1036"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="1121"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `settings_system_original_apks_deleted`; found both 1 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;settings_system_original_apks_deleted&quot;>%s के लिए अरिजनल एपीके सफलतापूर्वक हटाए गए&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-hi-rIN/strings.xml"
+            line="1042"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="1129"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+    <issue
+        id="StringFormatCount"
+        message="Inconsistent number of arguments in formatting string `settings_system_manager_description`; found both 2 here and 0 in values/strings.xml"
+        errorLine1="    &lt;string name=&quot;settings_system_manager_description&quot;>Kon nie \&apos;%1$s\&apos; aflaai nie: %2$s&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values-af-rZA/strings.xml"
+            line="1097"
+            column="5"/>
+        <location
+            file="src/main/res/values/strings.xml"
+            line="1191"
+            column="5"
+            message="Conflicting number of arguments (0) here"/>
+    </issue>
+
+</issues>

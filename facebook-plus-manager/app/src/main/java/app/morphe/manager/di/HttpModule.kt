@@ -1,0 +1,71 @@
+/*
+ * Copyright 2026 Morphe.
+ * https://github.com/MorpheApp/morphe-manager
+ *
+ * Original hard forked code:
+ * https://github.com/Jman-Github/Universal-ReVanced-Manager/blob/597b3173a004f5a9aae54326046dd7fd4c5b7777/app/src/main/java/app/revanced/manager/di/HttpModule.kt
+ *
+ * See the included NOTICE file for GPLv3 Section 7 terms that apply to Morphe contributions.
+ */
+
+package app.morphe.manager.di
+
+import android.content.Context
+import app.morphe.manager.util.MORPHE_USER_AGENT
+import io.ktor.client.*
+import io.ktor.client.engine.okhttp.*
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.UserAgent
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.serialization.kotlinx.json.*
+import kotlinx.serialization.json.Json
+import okhttp3.Cache
+import okhttp3.Dns
+import okhttp3.Protocol
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.module.dsl.singleOf
+import org.koin.dsl.module
+import java.net.Inet4Address
+
+val httpModule = module {
+    fun provideHttpClient(context: Context, json: Json) = HttpClient(OkHttp) {
+        engine {
+            config {
+                dns { hostname ->
+                    val addresses = Dns.SYSTEM.lookup(hostname)
+                    val ipv4Addresses = addresses.filterIsInstance<Inet4Address>()
+                    // Force IPv4 if available, fallback to IPv6 only if no IPv4 addresses are found
+                    ipv4Addresses.ifEmpty { addresses }
+                }
+                // Force HTTP/1.1 to avoid intermittent HTTP/2 PROTOCOL_ERROR stream resets when
+                // downloading patch bundles from GitHub-backed endpoints.
+                protocols(listOf(Protocol.HTTP_1_1))
+                cache(Cache(context.cacheDir.resolve("cache").also { it.mkdirs() }, 1024 * 1024 * 100))
+                followRedirects(true)
+                followSslRedirects(true)
+            }
+        }
+        install(ContentNegotiation) {
+            json(json)
+        }
+        install(HttpTimeout) {
+            connectTimeoutMillis = 20_000L
+            socketTimeoutMillis  = 5 * 60_000L
+            requestTimeoutMillis = 10 * 60_000L
+        }
+        install(UserAgent) {
+            agent = MORPHE_USER_AGENT
+        }
+    }
+
+    fun provideJson() = Json {
+        encodeDefaults = true
+        isLenient = true
+        ignoreUnknownKeys = true
+    }
+
+    single {
+        provideHttpClient(androidContext(), get())
+    }
+    singleOf(::provideJson)
+}

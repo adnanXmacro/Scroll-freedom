@@ -1,0 +1,155 @@
+/*
+ * Copyright 2026 Morphe.
+ * https://github.com/MorpheApp/morphe-manager
+ *
+ * Original hard forked code:
+ * https://github.com/Jman-Github/Universal-ReVanced-Manager/blob/597b3173a004f5a9aae54326046dd7fd4c5b7777/app/src/main/java/app/revanced/manager/data/platform/Filesystem.kt
+ *
+ * See the included NOTICE file for GPLv3 Section 7 terms that apply to Morphe contributions.
+ */
+
+package app.morphe.manager.data.platform
+
+import android.Manifest
+import android.app.Application
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
+import android.util.Log
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts
+import app.morphe.manager.BuildConfig
+import app.morphe.manager.util.AppCoroutineScope
+import app.morphe.manager.util.FilenameUtils
+import app.morphe.manager.util.RequestManageStorageContract
+import app.morphe.manager.util.formatBytesForReport
+import app.morphe.manager.util.purgeDirectoryAsync
+import app.morphe.manager.util.totalBytes
+import java.io.File
+
+private const val TAG = "Morphe Filesystem"
+
+class Filesystem(
+    private val app: Application,
+    private val appScope: AppCoroutineScope
+) {
+    /**
+     * Kept in `noBackupFilesDir` so neither an OS cache wipe, nor the user-initiated
+     * "Clear patcher workspace" action, nor a restored backup carries it along.
+     */
+    private val versionMarker = app.noBackupFilesDir.resolve(".manager_version")
+
+    /** Manager version this data was last opened by, or null when [versionMarker] is missing. */
+    private val markedVersion: Int? = runCatching {
+        versionMarker.takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull()
+    }.getOrNull()
+
+    /**
+     * Whether this data has never been opened on this device: a fresh install, or one a backup
+     * restored onto it. Anything the previous device owned has to be treated as not ours.
+     */
+    val isFirstRunForThisData = markedVersion == null
+
+    init {
+        invalidatePatcherWorkspaceOnUpgrade()
+    }
+
+    /**
+     * A directory that gets cleared when the app restarts.
+     * Do not store paths to this directory in a parcel.
+     */
+    val tempDir: File = app.getDir("ephemeral", Context.MODE_PRIVATE).also {
+        it.purgeDirectoryAsync(appScope)
+    }
+
+    /**
+     * A directory for storing temporary files related to UI.
+     * This is the same as [tempDir], but does not get cleared on system-initiated process death.
+     * Paths to this directory can be safely stored in parcels.
+     */
+    val uiTempDir: File = app.getDir("ui_ephemeral", Context.MODE_PRIVATE)
+
+    /** Home card cache, kept apart so storage management does not take it for patcher scratch. */
+    val homeCardCacheDir: File = app.cacheDir.resolve("home")
+
+    /** Avatars of patch sources, kept apart for the same reason as [homeCardCacheDir]. */
+    val avatarCacheDir: File = app.cacheDir.resolve("avatars")
+    private val patchedAppsDir: File = app.getDir("patched-apps", Context.MODE_PRIVATE).apply { mkdirs() }
+
+    /**
+     * Permanent directory for storing original APK files for repatching.
+     * Unlike temporary directories, these files persist across app restarts.
+     */
+    val originalApksDir: File = app.getDir("original-apks", Context.MODE_PRIVATE).apply { mkdirs() }
+
+    private fun usesManagePermission() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+
+    /** Storage permission the app asks for on this Android version, write access below Android 11. */
+    val storagePermissionName =
+        if (usesManagePermission()) Manifest.permission.MANAGE_EXTERNAL_STORAGE else Manifest.permission.WRITE_EXTERNAL_STORAGE
+
+    fun permissionContract(): Pair<ActivityResultContract<String, Boolean>, String> {
+        val contract =
+            if (usesManagePermission()) RequestManageStorageContract() else ActivityResultContracts.RequestPermission()
+        return contract to storagePermissionName
+    }
+
+    fun hasStoragePermission() =
+        if (usesManagePermission()) Environment.isExternalStorageManager() else app.checkSelfPermission(
+            storagePermissionName
+        ) == PackageManager.PERMISSION_GRANTED
+
+    /** Every file in the directory retained patched APKs are kept in. */
+    fun patchedAppFiles(): List<File> = patchedAppsDir.listFiles()?.filter(File::isFile).orEmpty()
+
+    fun getPatchedAppFile(packageName: String, version: String): File {
+        val safePackage = FilenameUtils.sanitize(packageName)
+        val safeVersion = FilenameUtils.sanitize(version.ifBlank { "unspecified" })
+        return patchedAppsDir.resolve("${safePackage}_${safeVersion}.apk")
+    }
+
+    /**
+     * Wipes `cacheDir/patcher` when the persisted manager version code differs from the running
+     * one. It holds dex files tied to the patcher module bundled with the manager, so stale entries
+     * from a previous version can cause ClassNotFoundError or ABI mismatches during patching.
+     * `cacheDir/framework` goes too: the apktool framework cache of patchers before 2.0, now unused.
+     */
+    private fun invalidatePatcherWorkspaceOnUpgrade() {
+        val current = BuildConfig.VERSION_CODE
+        if (markedVersion != null && markedVersion != current) {
+            listOf("framework", "patcher").forEach { name ->
+                runCatching { app.cacheDir.resolve(name).deleteRecursively() }
+            }
+            Log.i(TAG, "Manager version changed ($markedVersion -> $current), wiped patcher workspace")
+        }
+        runCatching { versionMarker.writeText(current.toString()) }
+    }
+
+    /**
+     * Logs all app-private directories and their contents with file sizes.
+     * Useful for diagnosing storage issues on startup.
+     */
+    fun logStorageContents() {
+        Log.i(TAG, "=== Storage contents ===")
+        for (dir in listOf(tempDir, uiTempDir, patchedAppsDir, originalApksDir)) {
+            logDir(dir.name, dir)
+        }
+        Log.i(TAG, "=== End of storage contents ===")
+    }
+
+    private fun logDir(label: String, dir: File, indent: String = "") {
+        val totalSize = dir.totalBytes()
+        Log.i(TAG, "$indent[$label] ${dir.absolutePath} (total: ${formatBytesForReport(totalSize)})")
+        dir.listFiles()
+            ?.sortedWith(compareBy({ it.isFile }, { it.name }))
+            ?.forEach { entry ->
+                if (entry.isDirectory) {
+                    logDir(entry.name, entry, "$indent  ")
+                } else {
+                    Log.i(TAG, "$indent  ${entry.name} (${formatBytesForReport(entry.length())})")
+                }
+            }
+            ?: Log.i(TAG, "$indent  (empty or unreadable)")
+    }
+}

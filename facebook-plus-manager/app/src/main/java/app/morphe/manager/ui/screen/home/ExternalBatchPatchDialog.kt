@@ -1,0 +1,84 @@
+/*
+ * Copyright 2026 Morphe.
+ * https://github.com/MorpheApp/morphe-manager
+ */
+
+package app.morphe.manager.ui.screen.home
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import app.morphe.manager.R
+import app.morphe.manager.ui.screen.shared.Defaults
+import app.morphe.manager.ui.screen.shared.dialogSecondaryTextColor
+import app.morphe.manager.ui.screen.shared.AppDialog
+import app.morphe.manager.ui.screen.shared.AppDialogButtonRow
+import app.morphe.manager.ui.screen.shared.DialogHostScope
+import app.morphe.manager.ui.screen.shared.SelectionCheckRow
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.rounded.*
+
+/**
+ * Confirmation for a batch patch run requested by another app.
+ *
+ * Patching ends in installing software, so an external trigger always stops here first.
+ * The user can trust the calling app once, which stores it in the allowlist.
+ */
+@Composable
+fun DialogHostScope.ExternalBatchPatchDialog(
+    callerPackage: String?,
+    packageCount: Int,
+    onConfirm: (trustCaller: Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    // Keyed by caller, so a request from another app never inherits the trust ticked for the last one
+    var trustCaller by remember(callerPackage) { mutableStateOf(false) }
+    val caller = callerPackage ?: stringResource(R.string.external_batch_patch_unknown_caller)
+
+    AppDialog(
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.external_batch_patch_title),
+        description = stringResource(R.string.external_batch_patch_description, caller),
+        footer = {
+            AppDialogButtonRow(
+                primaryText = stringResource(R.string.continue_),
+                primaryIcon = MaterialSymbols.Rounded.Check,
+                onPrimaryClick = { onConfirm(trustCaller && callerPackage != null) },
+                secondaryText = stringResource(android.R.string.cancel),
+                onSecondaryClick = onDismiss
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Defaults.SpaceMedium)
+        ) {
+            Text(
+                text = pluralStringResource(
+                    R.plurals.batch_patch_ready_count,
+                    packageCount,
+                    packageCount.toString()
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = dialogSecondaryTextColor(),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            if (callerPackage != null) {
+                SelectionCheckRow(
+                    text = stringResource(R.string.external_batch_patch_trust_caller),
+                    checked = trustCaller,
+                    onCheckedChange = { trustCaller = it }
+                )
+            }
+        }
+    }
+}

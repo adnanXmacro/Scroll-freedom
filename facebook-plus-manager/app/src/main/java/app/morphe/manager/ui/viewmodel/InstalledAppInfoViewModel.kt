@@ -1,0 +1,463 @@
+/*
+ * Copyright 2026 Morphe.
+ * https://github.com/MorpheApp/morphe-manager
+ *
+ * Original hard forked code:
+ * https://github.com/Jman-Github/Universal-ReVanced-Manager/blob/597b3173a004f5a9aae54326046dd7fd4c5b7777/app/src/main/java/app/revanced/manager/ui/viewmodel/InstalledAppInfoViewModel.kt
+ *
+ * See the included NOTICE file for GPLv3 Section 7 terms that apply to Morphe contributions.
+ */
+
+package app.morphe.manager.ui.viewmodel
+
+import android.app.Application
+import android.content.pm.PackageInfo
+import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import app.morphe.manager.R
+import app.morphe.manager.data.room.apps.installed.InstallType
+import app.morphe.manager.data.room.apps.installed.InstalledApp
+import app.morphe.manager.domain.apk.InstalledPatchState
+import app.morphe.manager.domain.apk.LocalApkSources
+import app.morphe.manager.domain.apk.canRemoveTrackedRecord
+import app.morphe.manager.domain.installer.InstallerManager
+import app.morphe.manager.domain.installer.RootInstaller
+import app.morphe.manager.domain.installer.UninstallCancelledException
+import app.morphe.manager.domain.links.AppLinksManager
+import app.morphe.manager.domain.links.AppLinksStatus
+import app.morphe.manager.domain.manager.PreferencesManager
+import app.morphe.manager.domain.repository.InstalledAppRepository
+import app.morphe.manager.domain.repository.OriginalApkRepository
+import app.morphe.manager.domain.repository.PatchBundleRepository
+import app.morphe.manager.patcher.util.NativeLibs
+import app.morphe.manager.ui.model.displayedPackageInfo
+import app.morphe.manager.ui.model.trackedInstallPresentation
+import app.morphe.manager.ui.screen.home.AppliedPatchBundleUi
+import app.morphe.manager.ui.screen.home.resolveAppliedBundleAttribution
+import app.morphe.manager.ui.screen.shared.UserMessages
+import app.morphe.manager.util.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+class InstalledAppInfoViewModel(
+    packageName: String,
+    private val context: Application,
+    private val messages: UserMessages,
+    private val pm: PM,
+    private val installedAppRepository: InstalledAppRepository,
+    private val patchBundleRepository: PatchBundleRepository,
+    private val rootInstaller: RootInstaller,
+    private val installerManager: InstallerManager,
+    private val originalApkRepository: OriginalApkRepository,
+    private val applicationScope: AppCoroutineScope,
+    private val localApkSources: LocalApkSources,
+    private val appLinksManager: AppLinksManager,
+    private val prefs: PreferencesManager
+) : ViewModel() {
+    lateinit var onBackClick: () -> Unit
+    var onAppStateChanged: ((packageName: String) -> Unit)? = null
+
+    var installedApp: InstalledApp? by mutableStateOf(null)
+        private set
+    var appInfo: PackageInfo? by mutableStateOf(null)
+        private set
+
+    /** Size in bytes of the APK installed under the app's package, null while none is. */
+    var installedApkSize: Long? by mutableStateOf(null)
+        private set
+
+    /** The ABIs the installed APK ships native libraries for, empty until read or when it ships none. */
+    var installedApkAbis: List<String> by mutableStateOf(emptyList())
+        private set
+    private var installedApkAbisJob: Job? = null
+    private var usableSavedApk: File? = null
+
+    private val _appliedPatches = MutableStateFlow<PatchSelection?>(null)
+    var appliedPatches: PatchSelection?
+        get() = _appliedPatches.value
+        set(value) { _appliedPatches.value = value }
+    var isMounted by mutableStateOf(false)
+        private set
+    var isInstalledOnDevice by mutableStateOf(false)
+        private set
+    var hasSavedCopy by mutableStateOf(false)
+        private set
+    var hasOriginalApk by mutableStateOf(false)
+        private set
+
+    /** Web links of the installed app, null while nothing is installed under its package. */
+    var appLinksStatus: AppLinksStatus? by mutableStateOf(null)
+        private set
+
+    /** Packages whose unverified links banner the user turned down. */
+    val ignoredAppLinksPackages = prefs.ignoredAppLinksPackages.flow
+
+    /**
+     * Whether removing this record is what takes the original APK archive with it, which is not
+     * the case while another record of the same app can still repatch from that archive.
+     */
+    var deletesOriginalApk by mutableStateOf(false)
+        private set
+    var isAppDeleted by mutableStateOf(false)
+        private set
+    var isInstallStateNotPatched by mutableStateOf(false)
+        private set
+
+    /** Whether the unpatched install that replaced the record came from Google Play. */
+    var isReplacedByPlayStore by mutableStateOf(false)
+        private set
+    var isInstallStateUnknown by mutableStateOf(false)
+        private set
+    var canRemoveRecord by mutableStateOf(false)
+        private set
+    var isLoading by mutableStateOf(true)
+        private set
+
+    val primaryInstallerIsMount: Boolean
+        get() = installerManager.getPrimaryToken() == InstallerManager.Token.AutoSaved
+
+    init {
+        viewModelScope.launch {
+            // Use Flow to automatically update when app data changes in database
+            installedAppRepository.getAsFlow(packageName).collect { app ->
+                installedApp = app
+
+                // Scoped to this emission and caught, so a failed check cancels its siblings and
+                // leaves the next emission to try again instead of ending the collection
+                if (app != null) try {
+                    coroutineScope {
+                        // Run all checks in parallel
+                        val deferredOriginalApk = async { originalApkRepository.get(app.originalPackageName) != null }
+                        val deferredSiblings = async { installedAppRepository.hasSiblingRecords(app) }
+                        val deferredAppState = async { refreshAppState(app) }
+                        val deferredPatches = async { resolveAppliedSelection(app) }
+
+                        // Wait for all to complete
+                        hasOriginalApk = deferredOriginalApk.await()
+                        deletesOriginalApk = hasOriginalApk && !deferredSiblings.await()
+                        deferredAppState.await()
+                        appliedPatches = deferredPatches.await()
+                    }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Log.e(tag, "Failed to read the state of ${app.currentPackageName}", e)
+                }
+
+                // Mark as loaded
+                isLoading = false
+            }
+        }
+    }
+
+    private suspend fun resolveAppliedSelection(app: InstalledApp) = withContext(Dispatchers.IO) {
+        val selection = installedAppRepository.getAppliedPatches(app.currentPackageName)
+        if (selection.isNotEmpty()) return@withContext selection
+        val payload = app.selectionPayload ?: return@withContext emptyMap()
+        val sources = patchBundleRepository.sources.first()
+        val sourceIds = sources.map { it.uid }.toSet()
+        val (remappedPayload, remappedSelection) = payload.remapAndExtractSelection(sources)
+        val persistableSelection = remappedSelection.filterKeys { it in sourceIds }
+        if (persistableSelection.isNotEmpty()) {
+            installedAppRepository.addOrUpdate(
+                app.currentPackageName,
+                app.originalPackageName,
+                app.isClone,
+                app.version,
+                app.installType,
+                persistableSelection,
+                remappedPayload,
+                app.patchedAt
+            )
+        }
+        if (remappedSelection.isNotEmpty()) return@withContext remappedSelection
+
+        // Fallback: convert payload directly to selection
+        payload.toPatchSelection()
+    }
+
+    fun launch() {
+        val app = installedApp ?: return
+        if (app.installType == InstallType.SAVED) {
+            messages.show(R.string.saved_app_launch_unavailable)
+        } else {
+            viewModelScope.launch {
+                if (localApkSources.trackedPatchState(app) == InstalledPatchState.Patched) {
+                    pm.launch(app.currentPackageName)
+                } else {
+                    // Covers both a package replaced under an open dialog and one whose identity
+                    // cannot be established, so the message must not claim which of the two it is
+                    messages.show(R.string.launch_app_unverified)
+                    refreshAppState(app)
+                    onAppStateChanged?.invoke(app.currentPackageName)
+                }
+            }
+        }
+    }
+
+    fun uninstall() {
+        val app = installedApp ?: return
+        when (app.installType) {
+            InstallType.DEFAULT,
+            InstallType.PLAY_STORE,
+            InstallType.ROOT_PLAY_STORE,
+            InstallType.CUSTOM,
+            InstallType.SHIZUKU,
+            InstallType.SHIZUKU_PLAY_STORE,
+            InstallType.SAVED -> {
+                viewModelScope.launch {
+                    try {
+                        if (localApkSources.trackedPatchState(app) != InstalledPatchState.Patched) {
+                            messages.show(R.string.uninstall_app_unverified)
+                            refreshAppState(app)
+                            onAppStateChanged?.invoke(app.currentPackageName)
+                            return@launch
+                        }
+                        installerManager.uninstallPackage(app.currentPackageName, app.installType)
+                        refreshCurrentAppState()
+                        onAppStateChanged?.invoke(app.currentPackageName)
+                    } catch (_: UninstallCancelledException) {
+                        // User dismissed dialog - do nothing
+                    } catch (e: Exception) {
+                        // Leaving the dialog cancels the wait, which is no failed uninstall
+                        if (e is CancellationException) throw e
+                        messages.show(R.string.uninstall_app_fail, e.simpleMessage())
+                    }
+                }
+            }
+
+            // No verification gate: unmounting only removes the bind mount and the module files,
+            // so it never touches whichever package currently owns the name
+            InstallType.MOUNT -> applicationScope.launch {
+                // Detached from viewModelScope: dialog dismissal must not abort the cleanup. That
+                // scope has no handler, so a failed root command is reported rather than thrown
+                try {
+                    rootInstaller.uninstall(app.currentPackageName)
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    messages.show(R.string.uninstall_app_fail, e.simpleMessage())
+                    return@launch
+                }
+                // Delete record and APK but preserve selection and options
+                deleteRecordAndApk(app)
+                withContext(Dispatchers.Main) {
+                    onAppStateChanged?.invoke(app.currentPackageName)
+                    onBackClick()
+                }
+            }
+        }
+    }
+
+    /**
+     * Remove app completely: database record, patched APK and the original APK it was built from.
+     * Patch selection and options are preserved for future patching.
+     */
+    fun removeAppCompletely() = applicationScope.launch {
+        // Detached from viewModelScope: dialog dismissal must not abort the cleanup
+        val app = installedApp ?: return@launch
+        // The archive is kept under the app's own package name and answers for every record of
+        // it, so it only leaves along with the last record that could repatch from it
+        val keepsOriginalApk = installedAppRepository.hasSiblingRecords(app)
+        deleteRecordAndApk(app)
+
+        withContext(Dispatchers.IO) {
+            if (!keepsOriginalApk) {
+                originalApkRepository.get(app.originalPackageName)?.let { originalApk ->
+                    originalApkRepository.delete(originalApk)
+                }
+            }
+        }
+
+        withContext(Dispatchers.Main) {
+            installedApp = null
+            appInfo = null
+            appliedPatches = null
+            isInstalledOnDevice = false
+            messages.show(R.string.saved_app_removed_toast)
+            onAppStateChanged?.invoke(app.currentPackageName)
+            if (app.originalPackageName != app.currentPackageName) {
+                onAppStateChanged?.invoke(app.originalPackageName)
+            }
+            onBackClick()
+        }
+    }
+
+    /**
+     * Delete database record and patched APK file.
+     * Note: Patch selection and options are NOT deleted - they remain for future patching.
+     */
+    private suspend fun deleteRecordAndApk(app: InstalledApp) {
+        // Removes the record together with every retained copy it owns
+        installedAppRepository.delete(app)
+        usableSavedApk = null
+        hasSavedCopy = false
+    }
+
+    suspend fun updateInstallType(packageName: String, newInstallType: InstallType) {
+        val app = installedApp ?: return
+        // Update in database
+        withContext(Dispatchers.IO) {
+            installedAppRepository.addOrUpdate(
+                packageName,
+                app.originalPackageName,
+                app.isClone,
+                app.version,
+                newInstallType,
+                appliedPatches ?: emptyMap(),
+                app.selectionPayload,
+                app.patchedAt
+            )
+        }
+        // Refresh app state to update UI
+        refreshAppState(app.copy(installType = newInstallType, currentPackageName = packageName))
+    }
+
+    fun savedApkFile(): File? = usableSavedApk
+
+    private suspend fun refreshAppState(app: InstalledApp) {
+        val snapshot = localApkSources.trackedAppSnapshot(app)
+        val installedInfo = snapshot.installedPackageInfo
+        val installedApk = installedInfo?.applicationInfo?.sourceDir?.let(::File)
+        installedApkSize = installedApk?.length()
+        readInstalledApkAbis(installedApk)
+        usableSavedApk = snapshot.savedPatchedApk
+        hasSavedCopy = usableSavedApk != null
+        val trackedPatchState = snapshot.patchState
+        val trackedPresentation = trackedInstallPresentation(app.installType, trackedPatchState)
+
+        // This flag authorizes actions against Morphe's tracked build, so a confirmed stock
+        // replacement remains false even though its own metadata is safe to display.
+        isInstalledOnDevice = installedInfo != null && trackedPresentation.isPatched
+        appInfo = trackedPresentation.displayedPackageInfo(
+            installedPackageInfo = installedInfo,
+            savedPackageInfo = snapshot.savedPatchedApkInfo
+        )
+        isAppDeleted = trackedPresentation.isDeleted
+        isInstallStateNotPatched = trackedPresentation.isNotPatched
+        isReplacedByPlayStore = isInstallStateNotPatched &&
+                pm.getInstallerPackageName(app.currentPackageName) == PLAY_STORE_INSTALLER_PACKAGE
+        isInstallStateUnknown = trackedPresentation.isUnknown
+
+        canRemoveRecord = canRemoveTrackedRecord(app.installType, trackedPatchState, hasSavedCopy)
+
+        // Update mounted state, which a mount install already read for its patch state
+        isMounted = snapshot.mounted
+            ?: (rootInstaller.isDeviceRooted() && rootInstaller.isAppMounted(app.currentPackageName))
+
+        appLinksStatus = installedInfo?.let { appLinksManager.getStatus(app.currentPackageName) }
+    }
+
+    // Listing the native libraries walks the whole APK, which for the largest apps would hold the
+    // rest of the state back, so they are read on their own and the row comes in once they are
+    private fun readInstalledApkAbis(apk: File?) {
+        installedApkAbisJob?.cancel()
+        installedApkAbisJob = viewModelScope.launch {
+            installedApkAbis = apk?.let { withContext(Dispatchers.IO) { NativeLibs.extractAbisFromApk(it) } }.orEmpty()
+        }
+    }
+
+    /** Reads the link selection again, which only the system screen changes. */
+    fun refreshAppLinks() {
+        val app = installedApp ?: return
+        if (appLinksStatus != null) appLinksStatus = appLinksManager.getStatus(app.currentPackageName)
+    }
+
+    /** Hides the unverified links banner of this app for good. The info row still reports them. */
+    fun ignoreAppLinks() {
+        val app = installedApp ?: return
+        viewModelScope.launch {
+            prefs.ignoredAppLinksPackages.update(prefs.ignoredAppLinksPackages.get() + app.currentPackageName)
+        }
+    }
+
+    /** Manually refresh app state (e.g., after app installation/uninstallation) */
+    fun refreshCurrentAppState() {
+        val app = installedApp ?: return
+        viewModelScope.launch {
+            refreshAppState(app)
+        }
+    }
+
+    /** Count of all patches across all enabled bundles. */
+    val availablePatches: StateFlow<Int> = patchBundleRepository.bundleInfoFlow
+        .map { it.values.sumOf { bundle -> bundle.patches.size } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    /**
+     * UI model for each bundle that was used to patch the current app.
+     * Combines applied patches, bundle metadata and stored bundle versions from DB.
+     * Recomputed reactively when any input changes.
+     */
+    val appliedBundles: StateFlow<List<AppliedPatchBundleUi>> =
+        combine(
+            installedAppRepository.getAsFlow(packageName).filterNotNull(),
+            patchBundleRepository.allBundlesInfoFlow,
+            patchBundleRepository.sources,
+            _appliedPatches
+        ) { app, bundleInfo, sources, patches ->
+            if (patches.isNullOrEmpty()) return@combine emptyList()
+
+            val storedVersions = withContext(Dispatchers.IO) {
+                installedAppRepository.getBundleVersionsForApp(app.currentPackageName)
+            }
+
+            patches.entries.mapNotNull { (bundleUid, bundlePatches) ->
+                if (bundlePatches.isEmpty()) return@mapNotNull null
+                val info = bundleInfo[bundleUid]
+                val source = sources.firstOrNull { it.uid == bundleUid }
+                val fallbackName = if (bundleUid == 0) {
+                    context.getString(R.string.home_app_info_patches_name_default)
+                } else {
+                    context.getString(R.string.home_app_info_patches_source_removed)
+                }
+                val attribution = resolveAppliedBundleAttribution(
+                    sourceTitle = source?.displayTitle,
+                    bundleName = info?.name,
+                    bundleVersion = info?.version,
+                    storedVersion = storedVersions[bundleUid],
+                    recorded = app.selectionPayload?.bundles?.firstOrNull { it.bundleUid == bundleUid },
+                    fallbackTitle = fallbackName
+                )
+                val title = attribution.title
+                val version = attribution.version
+                // Scoped to the app the patches were picked for, so keys match what was stored
+                val patchInfos = info?.forPackage(app.originalPackageName, null)?.patches
+                    ?.filter { it.name in bundlePatches }
+                    ?.sortedBy { it.name }
+                    ?: emptyList()
+                val missingNames = bundlePatches.toList().sorted()
+                    .filterNot { name -> patchInfos.any { it.name == name } }
+                    .distinct()
+                AppliedPatchBundleUi(
+                    uid = bundleUid,
+                    title = title,
+                    version = version,
+                    patchInfos = patchInfos,
+                    fallbackNames = missingNames,
+                    bundleAvailable = info != null
+                )
+            }.sortedBy { it.title }
+        }
+            .flowOn(Dispatchers.IO)
+            .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    /** Human-readable summary of applied bundles with versions for display in the dialog. */
+    val bundlesUsedSummary: StateFlow<String> = appliedBundles
+        .map { bundles ->
+            bundles.joinToString("\n") { bundle ->
+                val version = bundle.version?.takeIf { it.isNotBlank() }
+                if (version != null) "${bundle.title} ($version)" else bundle.title
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Lazily, "")
+}

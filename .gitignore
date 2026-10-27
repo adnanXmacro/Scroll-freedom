@@ -1,0 +1,15 @@
+# Nested upstream clone used only as a local Gradle composite
+morphe-patcher/
+
+# Android SDK / Gradle local state
+facebook-plus-manager/local.properties
+facebook-plus-manager/.gradle/
+facebook-plus-manager/**/build/
+facebook-plus-manager/.cxx/
+facebook-plus-manager/.kotlin/
+
+# Morphe FCM project file; plugin already disabled
+facebook-plus-manager/app/google-services.json
+
+# Built APKs are published as GitHub Release assets
+*.apk

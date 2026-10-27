@@ -1,0 +1,192 @@
+/*
+ * Copyright 2026 Morphe.
+ * https://github.com/MorpheApp/morphe-manager
+ */
+
+package app.morphe.manager.ui.screen.home
+
+import android.content.pm.PackageInfo
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import app.morphe.manager.R
+import app.morphe.manager.domain.links.AppLinksManager
+import app.morphe.manager.domain.links.AppLinksStatus
+import app.morphe.manager.domain.links.RepairCapability
+import app.morphe.manager.ui.screen.shared.*
+import app.morphe.manager.util.openAppOpenByDefaultSettings
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.rounded.*
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
+
+/**
+ * Lists the web links [packageName] declares and where each one opens. [onRefresh] reads the
+ * status again, which happens on every return to the app since the system screen is where the
+ * user changes it.
+ */
+@Composable
+fun DialogHostScope.AppLinksDialog(
+    appLabel: String,
+    appInfo: PackageInfo?,
+    accentColor: Color?,
+    packageName: String,
+    status: AppLinksStatus,
+    onRefresh: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        onRefresh()
+    }
+
+    DetailsDialog(
+        onDismissRequest = onDismiss,
+        icon = { modifier ->
+            AppIcon(packageInfo = appInfo, packageName = packageName, contentDescription = null, modifier = modifier)
+        },
+        title = appLabel,
+        subtitle = stringResource(R.string.app_links_title),
+        accentColor = accentColor,
+        actions = rememberAppLinksActions(packageName, status, onRefresh)
+    ) {
+        AppLinksContent(status = status, accentColor = accentColor)
+    }
+}
+
+/**
+ * What can be done about [packageName]'s web links: turning them on where the device lets the
+ * manager do it, and opening the system screen where the user picks them.
+ */
+@Composable
+fun rememberAppLinksActions(
+    packageName: String,
+    status: AppLinksStatus,
+    onRefresh: () -> Unit
+): List<DialogAction> {
+    val context = LocalContext.current
+    val messages = koinInject<UserMessages>()
+    val resources = LocalResources.current
+    val scope = rememberCoroutineScope()
+    val appLinksManager: AppLinksManager = koinInject()
+    val repairCapability by produceState(RepairCapability.NONE) {
+        value = appLinksManager.getRepairCapability()
+    }
+    var isRepairing by remember { mutableStateOf(false) }
+
+    return buildList {
+        if (repairCapability != RepairCapability.NONE && status.needsAttention) {
+            add(
+                DialogAction(
+                    text = stringResource(
+                        if (isRepairing) R.string.app_links_enable_auto_in_progress
+                        else R.string.app_links_enable_auto
+                    ),
+                    icon = MaterialSymbols.Rounded.Auto_fix_high,
+                    onClick = {
+                        // Set before launching, so a second tap in the same frame starts nothing
+                        if (!isRepairing) {
+                            isRepairing = true
+                            scope.launch {
+                                val success = appLinksManager.repairAppLinks(packageName)
+                                isRepairing = false
+                                onRefresh()
+                                messages.show(
+                                    resources.getString(
+                                        if (success) R.string.app_links_repair_success
+                                        else R.string.app_links_repair_failed
+                                    )
+                                )
+                            }
+                        }
+                    },
+                    enabled = !isRepairing,
+                    emphasis = DialogActionEmphasis.Filled
+                )
+            )
+        }
+        add(
+            DialogAction(
+                text = stringResource(R.string.app_links_open_settings),
+                icon = MaterialSymbols.Rounded.Open_in_new.autoMirrored,
+                onClick = { context.openAppOpenByDefaultSettings(packageName) }
+            )
+        )
+    }
+}
+
+/** Whether the app's web links open in it, then each link and whether it does. */
+@Composable
+fun AppLinksContent(status: AppLinksStatus, accentColor: Color?) {
+    if (status.needsAttention) {
+        Notice(
+            text = stringResource(R.string.app_links_description),
+            tone = SemanticTone.Warning,
+            icon = MaterialSymbols.Rounded.Link_off
+        )
+    } else {
+        Notice(
+            text = stringResource(R.string.app_links_all_verified),
+            tone = SemanticTone.Success,
+            icon = MaterialSymbols.Rounded.Check_circle
+        )
+    }
+
+    SurfaceCard(
+        cornerRadius = Defaults.CornerLarge,
+        showBorder = true,
+        borderColor = appAccentBorder(accentColor),
+        color = cardFill(),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column {
+            status.domains.forEachIndexed { index, domain ->
+                if (index > 0) SettingsDivider()
+                DomainRow(domain = domain, isEnabled = domain !in status.unhandledDomains)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DomainRow(domain: String, isEnabled: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Defaults.SpaceLarge, vertical = Defaults.SpaceMedium),
+        horizontalArrangement = Arrangement.spacedBy(Defaults.SpaceSmall),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = domain,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = stringResource(
+                if (isEnabled) R.string.enabled else R.string.disabled
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isEnabled) SemanticTone.Success.content else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .clip(RoundedCornerShape(Defaults.CornerMedium))
+                .background(
+                    if (isEnabled) SemanticTone.Success.container else MaterialTheme.colorScheme.surfaceVariant
+                )
+                .padding(horizontal = Defaults.SpaceSmall, vertical = 2.dp)
+        )
+    }
+}
