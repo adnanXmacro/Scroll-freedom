@@ -1,13 +1,13 @@
 {
   "hushfacebook": {
     "repo": "SysAdminDoc/HushFacebook",
-    "tag": "v0.19.0",
-    "patcherVersion": "2.0.0",
-    "facebookVersion": "584.0.0.51.56"
+    "tag": "v0.20.0",
+    "patcherVersion": "2.1.0",
+    "facebookVersion": "585.0.0.47.54"
   },
   "morphePatcher": {
     "repo": "MorpheApp/morphe-patcher",
-    "tag": "v2.0.0"
+    "tag": "v2.1.0"
   },
   "morpheManager": {
     "repo": "MorpheApp/morphe-manager",

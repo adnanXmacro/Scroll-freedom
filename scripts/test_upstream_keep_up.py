@@ -184,9 +184,9 @@ class ParsePinsTest(unittest.TestCase):
     def test_real_pins_file_has_required_keys(self):
         path = Path(__file__).resolve().parent.parent / "facebook-plus-manager" / "upstream-pins.json"
         pins = parse_pins(path.read_text())
-        self.assertEqual("v0.19.0", pins["hushfacebook"]["tag"])
-        self.assertEqual("2.0.0", pins["hushfacebook"]["patcherVersion"])
-        self.assertEqual("v2.0.0", pins["morphePatcher"]["tag"])
+        self.assertEqual("v0.20.0", pins["hushfacebook"]["tag"])
+        self.assertEqual("2.1.0", pins["hushfacebook"]["patcherVersion"])
+        self.assertEqual("v2.1.0", pins["morphePatcher"]["tag"])
         self.assertEqual("v2.1.0", pins["morpheManager"]["tag"])
 
 
