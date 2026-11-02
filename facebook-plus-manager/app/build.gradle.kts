@@ -381,6 +381,47 @@ android {
     }
 }
 
+fun patcherPinVersion(tag: String): String = tag.removePrefix("v")
+
+tasks.register("checkPatcherPin") {
+    group = "verification"
+    description = "Fails when libs.versions.toml, upstream-pins.json, and a local morphe-patcher checkout disagree."
+    doLast {
+        val pinsFile = rootProject.file("upstream-pins.json")
+        if (!pinsFile.isFile) {
+            throw GradleException("missing ${pinsFile.path}")
+        }
+        val pinsText = pinsFile.readText()
+        val pinTag = Regex(""""morphePatcher"\s*:\s*\{[^}]*"tag"\s*:\s*"([^"]+)"""")
+            .find(pinsText)
+            ?.groupValues
+            ?.get(1)
+            ?: throw GradleException("missing morphePatcher.tag in ${pinsFile.path}")
+        val pin = patcherPinVersion(pinTag)
+        val toml = libs.versions.morphe.patcher.get()
+        if (pin != toml) {
+            throw GradleException("patcher pin mismatch: toml=$toml pin=$pin")
+        }
+        val compositeProps = rootProject.file("../morphe-patcher/gradle.properties")
+        if (compositeProps.isFile) {
+            val composite = compositeProps.readLines()
+                .firstOrNull { it.trim().startsWith("version") }
+                ?.substringAfter("=")
+                ?.trim()
+                ?: throw GradleException("missing version in ${compositeProps.path}")
+            if (composite != toml) {
+                throw GradleException("patcher pin mismatch: toml=$toml composite=$composite")
+            }
+        }
+    }
+}
+
+afterEvaluate {
+    tasks.named("preBuild") {
+        dependsOn("checkPatcherPin")
+    }
+}
+
 // APK output file name
 base.archivesName.set(provider {
     "${rootProject.name}-$version"
