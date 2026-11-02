@@ -23,7 +23,7 @@
     <string name="android_11_bug_dialog_description">The app installation permission must be granted ahead of time to avoid a bug in the Android 11 system that will negatively affect the user experience</string>
 
     <string name="deep_link_add_source_title">Add source</string>
-    <string name="deep_link_add_source_message">Do you want to add this patch source to Morphe?</string>
+    <string name="deep_link_add_source_message">Do you want to add this patch source to Facebook+ Manager?</string>
     <string name="deep_link_add_source_warning">Only add sources you trust</string>
     <!-- Shown under the app a link was opened for -->
     <string name="deep_link_add_source_only_app">Only this app is added. You can add other apps from the source\'s app list</string>
@@ -33,15 +33,15 @@
     <string name="deep_link_add_source_app_back">This source is already added. Add this app from the existing source?</string>
 
     <!-- Home Screen - Update Notifications -->
-    <string name="home_update_available">Morphe update available</string>
+    <string name="home_update_available">Facebook+ Manager update available</string>
     <string name="home_update_available_subtitle">New version ready to install</string>
     <string name="home_blocked_source_title">Blocked patch source detected</string>
     <string name="home_blocked_source_subtitle">Tap to review and remove</string>
     <string name="home_metadata_errors_title">Some patch sources are unavailable</string>
     <string name="home_metadata_errors_subtitle">Tap to review sources</string>
-    <string name="home_outdated_manager_title">Morphe is out of date</string>
+    <string name="home_outdated_manager_title">Facebook+ Manager is out of date</string>
     <string name="home_outdated_manager_subtitle">Some patch sources need a newer version</string>
-    <string name="home_held_back_title">A patch source crashed Morphe</string>
+    <string name="home_held_back_title">A patch source crashed Facebook+ Manager</string>
     <string name="home_held_back_subtitle">It was skipped so the app could start. Tap to review</string>
     <string name="home_metered_skipped_title">Updates paused on mobile data</string>
     <string name="home_metered_skipped_subtitle">Tap to allow updates on mobile data</string>
@@ -206,8 +206,8 @@
     <string name="sources_management_metadata_unavailable">Metadata N/A</string>
     <string name="sources_management_metadata_unavailable_hint">The remote metadata file is unavailable. Patching with the installed bundle still works, but auto-update is disabled for this source</string>
     <string name="sources_management_metadata_unavailable_hint_missing">The patch bundle could not be downloaded. The source URL may be incorrect or the file does not exist</string>
-    <string name="sources_management_outdated_manager_badge">Update Morphe</string>
-    <string name="sources_management_outdated_manager_hint">This source is built for patcher %1$s, but Morphe %2$s includes patcher %3$s. Update Morphe to use it</string>
+    <string name="sources_management_outdated_manager_badge">Update Facebook+ Manager</string>
+    <string name="sources_management_outdated_manager_hint">This source is built for patcher %1$s, but Facebook+ Manager %2$s includes patcher %3$s. Update Facebook+ Manager to use it</string>
     <string name="sources_management_held_back_badge">Crashed</string>
     <string name="sources_management_held_back_hint">This source crashed Morphe while loading, so it is being skipped. Update or re-import it to try again</string>
     <string name="sources_management_source_enabled">Source enabled</string>
@@ -265,16 +265,16 @@ Anything you add from this website is used at your own risk"</string>
     <string name="home_apk_helper_untrusted">A helper app is installed but not trusted yet, so it is not offered here</string>
     <string name="home_apk_helper_untrusted_action">Review helpers</string>
     <string name="home_apk_helper_title">Download with a helper app</string>
-    <string name="home_apk_helper_description">Morphe will ask the helper app below to download the original APK and hand the file back</string>
+    <string name="home_apk_helper_description">Facebook+ Manager will ask the helper app below to download the original APK and hand the file back</string>
     <!-- Label of a footer button beside "Cancel". Keep it short, a longer one moves the buttons onto two rows -->
     <string name="home_apk_helper_continue">Open helper</string>
     <string name="home_apk_helper_warning">Only continue if you trust this helper app. Morphe checks the package, version and signature of whatever it receives before patching</string>
-    <string name="home_apk_helper_warning_unverified">Only continue if you trust this helper app. Morphe cannot verify the signature of this APK, so a modified file would not be detected</string>
+    <string name="home_apk_helper_warning_unverified">Only continue if you trust this helper app. Facebook+ Manager cannot verify the signature of this APK, so a modified file would not be detected</string>
     <string name="home_apk_helper_no_result">The helper app did not return an APK</string>
     <string name="home_apk_helper_no_access">The helper app did not grant access to the APK it returned</string>
     <string name="home_apk_helper_no_package">The helper app did not say which installed app to use</string>
     <string name="home_apk_helper_wrong_package">The helper app returned a different app than the one being patched</string>
-    <string name="home_apk_helper_installed_unavailable">Morphe could not use the installed app</string>
+    <string name="home_apk_helper_installed_unavailable">Facebook+ Manager could not use the installed app</string>
     <string name="home_apk_helper_installed_incompatible">The installed version cannot be patched</string>
     <string name="home_apk_use_saved">Use saved APK</string>
     <string name="home_apk_use_installed">Use installed APK</string>
@@ -282,7 +282,7 @@ Anything you add from this website is used at your own risk"</string>
     <string name="home_apk_use_installed_unverified">Could not verify the signature of the installed app, so it may already be patched</string>
     <string name="home_unverified">Unverified</string>
     <string name="home_install_verification_pending">Checking install…</string>
-    <string name="home_app_info_install_unverified">Morphe cannot confirm that the installed app is the build it patched. Repatch or reinstall it from the saved APK to restore its actions</string>
+    <string name="home_app_info_install_unverified">Facebook+ Manager cannot confirm that the installed app is the build it patched. Repatch or reinstall it from the saved APK to restore its actions</string>
     <string name="home_app_info_no_saved_apk">No saved APK. Patching will require selecting the APK file again</string>
     <string name="home_version_requires_android">Requires Android %s+</string>
     <string name="home_apk_no_compatible_versions_title">Not supported on this device</string>
@@ -296,7 +296,7 @@ Anything you add from this website is used at your own risk"</string>
     <string name="home_download_instructions_step2_generic">Scroll down the webpage and press its download button</string>
     <string name="home_download_instructions_step2_variant">Scroll down the webpage and press the download button of the top &lt;b&gt;APK variant&lt;/b&gt;</string>
     <string name="home_download_instructions_step2_search">Open a search result from a website you trust</string>
-    <string name="home_download_instructions_step2_search_note">Morphe cannot vouch for these websites. Skip the ones offering their own app store instead of an APK file</string>
+    <string name="home_download_instructions_step2_search_note">Facebook+ Manager cannot vouch for these websites. Skip the ones offering their own app store instead of an APK file</string>
     <string name="home_download_instructions_step3_search">On that website, download the APK of version &lt;b&gt;%s&lt;/b&gt;, not the newest one</string>
     <string name="home_download_instructions_step3_search_any">On that website, download the APK of the app. &lt;b&gt;Any version&lt;/b&gt; can be patched</string>
     <string name="home_download_instructions_download_button_toast">Press download on the website, and not here 😊</string>
@@ -307,8 +307,8 @@ Anything you add from this website is used at your own risk"</string>
     <string name="home_download_instructions_download_button_toast_6">You are now an official Morphe button tester 🏅</string>
     <string name="home_download_instructions_step3">Wait for the download to complete, and &lt;b&gt;do not install&lt;/b&gt; the APK</string>
     <string name="home_download_instructions_step3_mount">Wait for the download to complete, then &lt;b&gt;install the APK&lt;/b&gt;</string>
-    <string name="home_download_instructions_step4">After the download finishes, return to Morphe</string>
-    <string name="home_download_instructions_step4_mount">After installing the original APK, return to Morphe</string>
+    <string name="home_download_instructions_step4">After the download finishes, return to Facebook+ Manager</string>
+    <string name="home_download_instructions_step4_mount">After installing the original APK, return to Facebook+ Manager</string>
     <string name="home_download_instructions_continue_to">Continue to %s</string>
     <string name="home_download_instructions_destination">the download page</string>
     <string name="home_download_instructions_copy_link">Already have it? Pick the file.</string>
@@ -403,7 +403,8 @@ For the best results, this app recommends patching a &lt;b&gt;full APK&lt;/b&gt;
     <string name="home_facebook_plus_risk_title">Before you make Facebook+</string>
     <string name="home_facebook_plus_risk_message">Patching Facebook can break Meta\'s terms of service and put your account at risk. Ignore Play Store updates for Facebook. Only update through Facebook+ Manager.</string>
     <string name="home_facebook_plus_risk_accept">I understand</string>
-    <string name="home_facebook_plus_wrong_apk">Wrong Facebook APK. Download the pinned file from APKMirror.</string>
+    <string name="home_facebook_plus_wrong_apk">Wrong Facebook APK. Download the version Facebook+ Manager showed.</string>
+    <string name="home_facebook_plus_bundle_loading">Can\'t make Facebook+ until patches finish loading.</string>
     <string name="home_facebook_plus_export_key_title">Back up your signing key</string>
     <string name="home_facebook_plus_export_key_message">Export the signing key from Settings. Without that key, later updates require uninstalling Facebook+ and Facebook data is lost.</string>
     <string name="home_facebook_plus_make">Make Facebook+</string>
@@ -655,7 +656,7 @@ For the best results, this app recommends patching a &lt;b&gt;full APK&lt;/b&gt;
     <string name="patcher_conflict_subtitle">You need to uninstall the existing version</string>
     <string name="patcher_conflict_hint">The patched app uses a different certificate than the installed version. Uninstalling will erase all app data</string>
     <string name="patcher_installed_conflict_title">Uninstall required</string>
-    <string name="patcher_installed_conflict_body">"Morphe signs patched apps with its own certificate, which differs from the original. Android requires removing the existing version before the patched app can be installed.
+    <string name="patcher_installed_conflict_body">"Facebook+ Manager signs patched apps with its own certificate, which differs from the original. Android requires removing the existing version before the patched app can be installed.
 
 Uninstalling will permanently erase all app data"</string>
     <string name="patcher_install_error_title">Installation error</string>
@@ -666,8 +667,8 @@ Uninstalling will permanently erase all app data"</string>
     <string name="patcher_back_to_game_hint">Tap %1$s to go back to your game</string>
     <string name="patcher_storage_permission_dialog_title">Cannot access storage path</string>
     <string name="patcher_incompatible_patcher_title">Update required</string>
-    <string name="patcher_incompatible_patcher_description">The source &lt;b&gt;%1$s&lt;/b&gt; requires patcher &lt;b&gt;%2$s&lt;/b&gt; or newer. Update Morphe to use it</string>
-    <string name="patcher_storage_permission_description_api30">One or more patch options point to paths Morphe cannot read. Grant storage access and tap the button then patching will start automatically</string>
+    <string name="patcher_incompatible_patcher_description">The source &lt;b&gt;%1$s&lt;/b&gt; requires patcher &lt;b&gt;%2$s&lt;/b&gt; or newer. Update Facebook+ Manager to use it</string>
+    <string name="patcher_storage_permission_description_api30">One or more patch options point to paths Facebook+ Manager cannot read. Grant storage access and tap the button then patching will start automatically</string>
     <string name="patcher_storage_permission_description_legacy">One or more patch options point to paths that cannot be accessed. Update the paths in patch options and try again</string>
     <string name="patcher_storage_permission_grant">Grant storage permission</string>
     <string name="patcher_storage_permission_denied_warning">Storage permission was denied. Grant the permission to use this path, or move the files to the app\'s private directory</string>
@@ -704,7 +705,7 @@ Uninstalling will permanently erase all app data"</string>
     <string name="patcher_stop_confirm_description">Are you sure you want to stop the patching process?</string>
 
     <!-- Patcher Screen - Patcher Messages -->
-    <string name="patcher_message_1">Morphing your app into something awesome… 🏆</string>
+    <string name="patcher_message_1">Working some magic…</string>
     <string name="patcher_message_2">Teaching old apps new tricks… 🎩</string>
     <string name="patcher_message_3">Giving your app a digital tune-up… 🔧</string>
     <string name="patcher_message_4">Brewing digital magic… ☕</string>
@@ -751,7 +752,7 @@ Uninstalling will permanently erase all app data"</string>
     <string name="install_ignore_signature_description">Keeps the app data, but only works if a root module disables the signature verification of Android</string>
     <string name="uninstall_app_fail">Failed to uninstall app: %s</string>
     <string name="uninstall_app_unverified">Left in place: Morphe could not verify that the installed app is the build it patched</string>
-    <string name="launch_app_unverified">Morphe could not verify that the installed app is the build it patched</string>
+    <string name="launch_app_unverified">Facebook+ Manager could not verify that the installed app is the build it patched</string>
     <string name="uninstall_timeout">Uninstall timed out</string>
     <string name="save_apk_success">APK Saved</string>
     <string name="saved_app_export_failed">Failed to export patched app</string>
@@ -860,7 +861,7 @@ Uninstalling will permanently erase all app data"</string>
     <!-- Settings - Appearance Tab - Language Selector -->
     <string name="settings_appearance_app_language">App language</string>
     <string name="settings_appearance_app_language_current">Current language</string>
-    <string name="settings_appearance_translate">Help translate Morphe</string>
+    <string name="settings_appearance_translate">Help translate Facebook+ Manager</string>
     <string name="settings_appearance_translations_info_title">Translations for some languages may be missing or incomplete</string>
 
     <!-- Settings - Appearance Tab - Interface Scale -->
@@ -953,9 +954,9 @@ Patches are not affected: enable pre-release patches for each source in the patc
     <string name="notification_update_text">Version %s is ready to download</string>
     <string name="notification_bundle_update_text_unversioned">Tap to open Morphe and update</string>
     <string name="notification_permission_dialog_title">Allow notifications</string>
-    <string name="notification_permission_dialog_description">Morphe needs notification permission to alert you when updates are available in the background</string>
+    <string name="notification_permission_dialog_description">Facebook+ Manager needs notification permission to alert you when updates are available in the background</string>
     <string name="notification_post_patch_dialog_title">Would you like to be notified when updates are available?</string>
-    <string name="notification_channel_manager_updates">Morphe updates</string>
+    <string name="notification_channel_manager_updates">Facebook+ Manager updates</string>
     <string name="notification_channel_manager_updates_description">Notifications about new Morphe releases</string>
     <string name="notification_channel_patch_updates">Patch updates</string>
     <string name="notification_channel_patch_updates_description">Notifications about new patch releases</string>
@@ -1089,7 +1090,7 @@ The image dimensions must be as follows:
     <string name="installer_status_not_supported">Not supported for this action</string>
     <string name="installer_status_shizuku_not_installed">Install Shizuku or Sui to use this option</string>
     <string name="installer_status_shizuku_not_running">Start Shizuku or Sui and try again</string>
-    <string name="installer_status_shizuku_permission">Grant permission to Morphe from the Shizuku app</string>
+    <string name="installer_status_shizuku_permission">Grant permission to Facebook+ Manager from the Shizuku app</string>
     <string name="installer_mount_warning_install">Your primary installer is set to the rooted mount installer. This saved app was not installed using mount</string>
     <string name="mount_version_mismatch_message">Stock app version (%2$s) does not match patched app version (%1$s). Mount the matching stock version, then try again</string>
     <string name="mount_stock_restore_failed_message">Android rejected the saved original APK. Install the matching stock version, then try Mount again</string>
@@ -1121,7 +1122,7 @@ The image dimensions must be as follows:
     <string name="settings_ignore_install_target_rules">Ignore install target requirements</string>
     <string name="settings_ignore_install_target_rules_description">Lets patches the install target requires be turned off and those it rules out be turned on. The patched app may not work</string>
     <string name="settings_auto_uninstall_warning_title">Enable auto-uninstall?</string>
-    <string name="settings_auto_uninstall_warning_message">If Android reports a signature conflict during Shizuku auto-install, Morphe will uninstall the existing app before installing the patched APK</string>
+    <string name="settings_auto_uninstall_warning_message">If Android reports a signature conflict during Shizuku auto-install, Facebook+ Manager will uninstall the existing app before installing the patched APK</string>
     <string name="settings_auto_uninstall_warning_risk">This can remove app data. If the patched APK fails to install after uninstalling, the previous app may already be gone</string>
     <string name="installer_shizuku_status_action">Check Shizuku status</string>
     <string name="installer_shizuku_status_title">Shizuku status</string>
@@ -1139,7 +1140,7 @@ The image dimensions must be as follows:
     <string name="installer_shizuku_install_fail_with_details">"Shizuku install failed: %1$s
 
 Details: %2$s"</string>
-    <string name="installer_shizuku_error_permission">Shizuku permission is missing. Grant permission to Morphe and try again</string>
+    <string name="installer_shizuku_error_permission">Shizuku permission is missing. Grant permission to Facebook+ Manager and try again</string>
     <string name="installer_shizuku_error_timeout">Shizuku did not return an install result. Make sure it is still running and try again</string>
     <string name="installer_shizuku_error_downgrade">Android blocked this because it would downgrade the installed app</string>
     <string name="installer_shizuku_error_signature">Android blocked this because the installed app has a different signature</string>
@@ -1171,7 +1172,7 @@ Details: %2$s"</string>
     <string name="settings_system_signing_key">Signing key</string>
     <string name="settings_system_signing_key_description">Backs up or restores the key that signs patched apps</string>
     <string name="settings_system_signing_key_dialog_description">Every app Morphe patches is signed with this key. Keep a copy: without it, patched apps can only be updated after uninstalling them</string>
-    <string name="settings_system_signing_key_missing">Morphe creates one with your first patch</string>
+    <string name="settings_system_signing_key_missing">Facebook+ Manager creates one with your first patch</string>
     <string name="settings_system_signing_key_created">Created %s</string>
     <string name="settings_system_signing_key_fingerprint">SHA-256 fingerprint</string>
     <string name="settings_system_backup_appearance_description">Theme, colors and language</string>
@@ -1194,10 +1195,10 @@ Details: %2$s"</string>
     <string name="settings_system_export_keystore_failed">Failed to export keystore</string>
     <string name="settings_system_show_password_field">Show password</string>
     <string name="settings_system_hide_password_field">Hide password</string>
-    <string name="settings_system_morphe_settings">Morphe settings</string>
+    <string name="settings_system_morphe_settings">Facebook+ Manager settings</string>
     <string name="settings_system_import_manager_settings_description">Backs up and restores your Morphe settings</string>
     <string name="settings_system_import_manager_settings_fail">Failed to import Morphe settings: %s</string>
-    <string name="settings_system_import_manager_settings_success">Morphe settings imported</string>
+    <string name="settings_system_import_manager_settings_success">Facebook+ Manager settings imported</string>
     <string name="settings_system_import_manager_settings_mode_title">Import Morphe settings</string>
     <string name="settings_system_import_manager_settings_mode_description">Choose how the imported settings and sources should be applied</string>
     <string name="settings_system_import_selections_mode_title">Import patch selections</string>
@@ -1207,7 +1208,7 @@ Details: %2$s"</string>
     <string name="import_mode_merge_title">Merge with existing</string>
     <string name="import_mode_merge_description">Add missing items from the backup. Existing items are kept unchanged</string>
     <string name="settings_system_export_manager_settings_fail">Failed to export Morphe settings: %s</string>
-    <string name="settings_system_export_manager_settings_success">Morphe settings exported</string>
+    <string name="settings_system_export_manager_settings_success">Facebook+ Manager settings exported</string>
     <string name="settings_system_export_debug_logs">Export debug logs</string>
     <string name="settings_system_export_debug_logs_description">Saves system logs for troubleshooting</string>
     <string name="settings_system_export_debug_logs_export_read_failed">Failed to read logs (exit code %s)</string>
@@ -1330,7 +1331,7 @@ Details: %2$s"</string>
 
     <!-- Settings - System Tab - About Section -->
     <string name="settings_system_about">About</string>
-    <string name="settings_system_manager_description">Turns a Facebook APK you download into Facebook+, with HushFacebook patches. powered by projectAdnan. Publisher: 8BiT Softworks. This is a modified Morphe Manager and is not Morphe.</string>
+    <string name="settings_system_manager_description">Turns a Facebook APK you download into Facebook+. powered by projectAdnan. Publisher: 8BiT Softworks. RageDoll engine by projectAdnan. This is a modified Morphe Manager and is not Morphe.</string>
     <string name="credits">Credits</string>
     <string name="credits_description">powered by projectAdnan. Publisher: 8BiT Softworks</string>
     <string name="settings_about_section_project">Project</string>
@@ -1529,7 +1530,7 @@ Details: %2$s"</string>
     <string name="update_completed">Update installed</string>
     <string name="install_update_manager_failed">Failed to install update</string>
     <string name="installing_manager_update">Installing update…</string>
-    <string name="installing_manager_update_hint">Morphe will close to finish the update</string>
+    <string name="installing_manager_update_hint">Facebook+ Manager will close to finish the update</string>
     <string name="downloading_manager_update">Downloading update…</string>
     <!-- Shown while downloading when the server does not report the total size. "%1$s" is the megabytes so far. -->
     <string name="manager_update_progress_downloaded">%1$s MB downloaded</string>

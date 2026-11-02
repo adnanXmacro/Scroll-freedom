@@ -202,8 +202,6 @@ private fun DisplaySection(
                 }
             )
             UiScaleSetting(currentScale = uiScale, onApply = onUiScaleApply)
-            // How the manager shows on the launcher, as the language and scale say how it reads
-            AppIconSettingsItem()
         }
     }
 }

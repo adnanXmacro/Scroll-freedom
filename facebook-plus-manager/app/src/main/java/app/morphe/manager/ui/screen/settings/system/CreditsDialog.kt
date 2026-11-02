@@ -32,12 +32,12 @@ private val currentContributors = listOf(
     Contributor(
         name = "projectAdnan",
         organisation = "8BiT Softworks",
-        url = "https://github.com/SysAdminDoc/HushFacebook"
+        url = "https://github.com/adnanXmacro/Scroll-freedom"
     ),
     Contributor(
-        name = "HushFacebook",
-        organisation = "SysAdminDoc",
-        url = "https://github.com/SysAdminDoc/HushFacebook"
+        name = "RageDoll engine",
+        organisation = "projectAdnan",
+        url = "https://github.com/adnanXmacro/Scroll-freedom"
     ),
     Contributor(
         name = "Morphe Manager",

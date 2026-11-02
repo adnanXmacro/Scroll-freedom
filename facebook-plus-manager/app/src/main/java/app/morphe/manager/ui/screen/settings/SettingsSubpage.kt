@@ -29,7 +29,8 @@ enum class SettingsSubpage(
     PATCH_OPTIONS(
         R.string.settings_advanced_patch_options,
         R.string.settings_section_patch_options_summary,
-        MaterialSymbols.Rounded.Tune
+        MaterialSymbols.Rounded.Tune,
+        searchable = false
     ),
     APPEARANCE(
         R.string.appearance,

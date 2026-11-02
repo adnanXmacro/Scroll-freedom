@@ -13,3 +13,7 @@ facebook-plus-manager/app/google-services.json
 
 # Built APKs are published as GitHub Release assets
 *.apk
+
+# Python
+scripts/__pycache__/
+*.pyc

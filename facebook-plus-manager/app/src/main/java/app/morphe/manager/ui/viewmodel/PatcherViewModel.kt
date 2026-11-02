@@ -34,6 +34,7 @@ import app.morphe.manager.BuildConfig
 import app.morphe.manager.R
 import app.morphe.manager.data.platform.Filesystem
 import app.morphe.manager.data.room.apps.installed.InstallType
+import app.morphe.manager.domain.facebookplus.FacebookPlusFlow
 import app.morphe.manager.domain.installer.InstallerManager
 import app.morphe.manager.domain.manager.PatchOptionsPreferencesManager
 import app.morphe.manager.domain.manager.PreferencesManager
@@ -373,6 +374,7 @@ class PatcherViewModel(
         return sanitizedSelection.keys.mapNotNull { uid ->
             val name = (displayNames[uid] ?: scopedBundles[uid]?.name ?: globalBundles[uid]?.name)
                 ?.takeIf { it.isNotBlank() }
+                ?.let(FacebookPlusFlow::publicSourceName)
                 ?: return@mapNotNull null
             PatchSourceRef(
                 name = name,
@@ -615,17 +617,20 @@ class PatcherViewModel(
 
         // Check that all selected bundles are compatible with the patcher bundled in this
         // version of the manager. If a bundle requires a newer patcher, block and show a dialog
-        // asking the user to update the manager app
-        val globalBundlesForCheck = patchBundleRepository.bundleInfoFlow.first()
-        appliedSelection.keys.forEach { uid ->
-            val bundle = globalBundlesForCheck[uid] ?: return@forEach
-            val required = bundle.patcherVersion ?: return@forEach
-            if (isPatcherOutdated(required, BuildConfig.PATCHER_VERSION)) {
-                incompatiblePatcherVersion = IncompatiblePatcherVersionState(
-                    requiredVersion = required,
-                    bundleName = bundle.name,
-                )
-                return false
+        // asking the user to update the manager app. Facebook+ already loaded the bundle, so
+        // a Patcher-Version mismatch must not stop the one-tap flow.
+        if (!FacebookPlusFlow.skipPatcherVersionGate(packageName)) {
+            val globalBundlesForCheck = patchBundleRepository.bundleInfoFlow.first()
+            appliedSelection.keys.forEach { uid ->
+                val bundle = globalBundlesForCheck[uid] ?: return@forEach
+                val required = bundle.patcherVersion ?: return@forEach
+                if (isPatcherOutdated(required, BuildConfig.PATCHER_VERSION)) {
+                    incompatiblePatcherVersion = IncompatiblePatcherVersionState(
+                        requiredVersion = required,
+                        bundleName = FacebookPlusFlow.publicSourceName(bundle.name),
+                    )
+                    return false
+                }
             }
         }
 

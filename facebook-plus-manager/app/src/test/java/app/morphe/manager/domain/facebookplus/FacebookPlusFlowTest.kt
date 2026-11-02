@@ -15,10 +15,10 @@ import kotlin.test.assertTrue
 class FacebookPlusFlowTest {
 
     @Test
-    fun `facebook skips apk availability and opens download instructions`() {
-        assertTrue(FacebookPlusFlow.skipApkAvailability(FacebookPlusPin.packageName))
+    fun `facebook shows apk availability like other apps`() {
+        assertFalse(FacebookPlusFlow.skipApkAvailability(FacebookPlusPin.packageName))
         assertEquals(
-            FacebookPlusFlow.ApkSourceStep.DownloadInstructions,
+            FacebookPlusFlow.ApkSourceStep.ApkAvailability,
             FacebookPlusFlow.apkSourceStep(FacebookPlusPin.packageName),
         )
     }
@@ -56,32 +56,32 @@ class FacebookPlusFlowTest {
     @Test
     fun `saved facebook apk is reused only when it matches the pin`() {
         assertTrue(
-            FacebookPlusFlow.reuseSavedApk(FacebookPlusPin.packageName, FacebookPlusPin.versionName),
+            FacebookPlusFlow.reuseSavedApk(FacebookPlusPin.packageName, "584.0.0.51.56", "584.0.0.51.56"),
         )
         assertFalse(
-            FacebookPlusFlow.reuseSavedApk(FacebookPlusPin.packageName, "583.0.0.0.0"),
+            FacebookPlusFlow.reuseSavedApk(FacebookPlusPin.packageName, "583.0.0.0.0", "584.0.0.51.56"),
         )
         assertFalse(
-            FacebookPlusFlow.reuseSavedApk("com.google.android.youtube", FacebookPlusPin.versionName),
+            FacebookPlusFlow.reuseSavedApk("com.google.android.youtube", "584.0.0.51.56", "584.0.0.51.56"),
         )
     }
 
     @Test
-    fun `wrong pin reopens download instructions`() {
+    fun `wrong pin reopens apk availability`() {
         assertEquals(
-            FacebookPlusFlow.ApkSourceStep.DownloadInstructions,
+            FacebookPlusFlow.ApkSourceStep.ApkAvailability,
             FacebookPlusFlow.nextOnPinFailure(),
         )
     }
 
     @Test
-    fun `facebook needs two gigabytes and cannot patch anyway`() {
-        assertEquals(2_000_000_000L, FacebookPlusFlow.storageThresholdBytes(FacebookPlusPin.packageName))
+    fun `facebook needs one gigabyte and cannot patch anyway`() {
+        assertEquals(1_000_000_000L, FacebookPlusFlow.storageThresholdBytes(FacebookPlusPin.packageName))
         assertEquals(1_000_000_000L, FacebookPlusFlow.storageThresholdBytes("com.google.android.youtube"))
         assertFalse(FacebookPlusFlow.allowsPatchAnywayOnLowDisk(FacebookPlusPin.packageName))
         assertTrue(FacebookPlusFlow.allowsPatchAnywayOnLowDisk("com.google.android.youtube"))
-        assertTrue(FacebookPlusFlow.storageOk(2_000_000_000L, FacebookPlusPin.packageName))
-        assertFalse(FacebookPlusFlow.storageOk(1_999_999_999L, FacebookPlusPin.packageName))
+        assertTrue(FacebookPlusFlow.storageOk(1_000_000_000L, FacebookPlusPin.packageName))
+        assertFalse(FacebookPlusFlow.storageOk(999_999_999L, FacebookPlusPin.packageName))
     }
 
     @Test
@@ -134,6 +134,20 @@ class FacebookPlusFlowTest {
                 freeBytes = 500_000_000L,
             ),
         )
+    }
+
+    @Test
+    fun `facebook does not block on patcher version after the bundle loaded`() {
+        assertTrue(FacebookPlusFlow.skipPatcherVersionGate(FacebookPlusPin.packageName))
+        assertFalse(FacebookPlusFlow.skipPatcherVersionGate("com.google.android.youtube"))
+        assertFalse(FacebookPlusFlow.skipPatcherVersionGate(null))
+    }
+
+    @Test
+    fun `hushfacebook is shown as facebook plus`() {
+        assertEquals("Facebook+", FacebookPlusFlow.publicSourceName("HushFacebook"))
+        assertEquals("Facebook+", FacebookPlusFlow.publicSourceName("hushfacebook"))
+        assertEquals("Other", FacebookPlusFlow.publicSourceName("Other"))
     }
 
     @Test

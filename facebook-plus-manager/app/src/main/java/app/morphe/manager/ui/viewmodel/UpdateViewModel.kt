@@ -26,6 +26,7 @@ import app.morphe.manager.domain.installer.InstallCancelledException
 import app.morphe.manager.domain.installer.InstallResult
 import app.morphe.manager.domain.installer.InstallerManager
 import app.morphe.manager.domain.installer.SessionInstaller
+import app.morphe.manager.domain.manager.ManagerUpdatePolicy
 import app.morphe.manager.domain.manager.PreferencesManager
 import app.morphe.manager.domain.repository.ManagerUpdateRepository
 import app.morphe.manager.network.api.MorpheAPI
@@ -153,6 +154,9 @@ class UpdateViewModel(
     fun downloadUpdate(ignoreInternetCheck: Boolean = false) = viewModelScope.launch {
         messages.reportingFailure(R.string.failed_to_download_update, "Failed to download update") {
             val release = releaseInfo ?: return@reportingFailure
+            if (!ManagerUpdatePolicy.isAllowedDownloadUrl(release.downloadUrl)) {
+                throw IOException("Failed to download update")
+            }
             val allowMeteredUpdates = prefs.allowMeteredUpdates.get()
 
             if (!allowMeteredUpdates && networkInfo.isMetered() && !ignoreInternetCheck) {
@@ -180,6 +184,7 @@ class UpdateViewModel(
                     )
                 }
                 requireApkArchive(location)
+                requireAllowedUpdatePackage()
                 installUpdate().join()
             } catch (error: Exception) {
                 resetToDownload()
@@ -214,6 +219,12 @@ class UpdateViewModel(
         if (!hasDownloadedApk()) {
             resetToDownload()
             messages.show(R.string.update_download_missing)
+            return@launch
+        }
+
+        if (!stagedUpdateMayInstall()) {
+            dropStagedUpdate()
+            failInstall(app.getString(R.string.failed_to_download_update, ""))
             return@launch
         }
 
@@ -295,6 +306,26 @@ class UpdateViewModel(
 
     /** Whether the staged update is still on disk and holds anything worth installing. */
     private fun hasDownloadedApk() = location.exists() && location.length() > 0
+
+    private suspend fun requireAllowedUpdatePackage() = withContext(Dispatchers.IO) {
+        if (stagedUpdateMayInstall()) return@withContext
+        dropStagedUpdate()
+        throw IOException("Failed to download update")
+    }
+
+    private fun stagedUpdateMayInstall(): Boolean {
+        val downloadedPackage = app.packageManager.getPackageArchiveInfo(location.absolutePath, 0)
+            ?.packageName
+        return ManagerUpdatePolicy.shouldInstall(
+            releaseInfo?.downloadUrl.orEmpty(),
+            downloadedPackage,
+            BuildConfig.APPLICATION_ID
+        )
+    }
+
+    private fun dropStagedUpdate() {
+        runCatching { location.delete() }
+    }
 
     private fun handleInstallResult(result: InstallResult) {
         when (result) {

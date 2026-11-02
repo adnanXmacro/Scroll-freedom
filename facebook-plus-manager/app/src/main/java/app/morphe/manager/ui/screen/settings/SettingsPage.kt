@@ -42,6 +42,7 @@ fun SettingsPage(
     bottomBarHeight: Dp,
     modifier: Modifier = Modifier,
     onboardingState: OnboardingState? = null,
+    onBack: (() -> Unit)? = null,
     onHeaderHeightChange: (Dp) -> Unit = {},
     settingsViewModel: SettingsViewModel = koinViewModel()
 ) {
@@ -54,7 +55,12 @@ fun SettingsPage(
 
     PinnedHeaderPage(
         header = {
-            PageHeader(title = stringResource(R.string.settings), search = search, searchLabel = searchLabel)
+            PageHeader(
+                title = stringResource(R.string.settings),
+                onBack = onBack,
+                search = search,
+                searchLabel = searchLabel
+            )
         },
         scrollState = scrollState,
         modifier = modifier,

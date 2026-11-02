@@ -8,7 +8,7 @@ package app.morphe.manager.domain.facebookplus
 
 object FacebookPlusFlow {
     const val DEFAULT_STORAGE_THRESHOLD_BYTES = 1_000_000_000L
-    const val FACEBOOK_STORAGE_THRESHOLD_BYTES = 2_000_000_000L
+    const val FACEBOOK_STORAGE_THRESHOLD_BYTES = 1_000_000_000L
 
     enum class ApkSourceStep {
         ApkAvailability,
@@ -24,22 +24,27 @@ object FacebookPlusFlow {
         data object Ready : Gate()
     }
 
-    fun skipApkAvailability(packageName: String?): Boolean =
+    fun skipApkAvailability(packageName: String?): Boolean = false
+
+    fun skipPatcherVersionGate(packageName: String?): Boolean =
         packageName == FacebookPlusPin.packageName
 
-    fun apkSourceStep(packageName: String?): ApkSourceStep =
-        if (skipApkAvailability(packageName)) ApkSourceStep.DownloadInstructions
-        else ApkSourceStep.ApkAvailability
+    fun publicSourceName(internalName: String): String =
+        if (internalName.equals("HushFacebook", ignoreCase = true)) "Facebook+" else internalName
+
+    fun apkSourceStep(packageName: String?): ApkSourceStep = ApkSourceStep.ApkAvailability
 
     fun nextAfterPickFile(): ApkSourceStep = ApkSourceStep.FilePickerPrompt
 
     fun nextAfterOpenUrl(opened: Boolean): ApkSourceStep? =
         if (opened) ApkSourceStep.FilePickerPrompt else null
 
-    fun reuseSavedApk(packageName: String?, savedVersion: String?): Boolean =
-        packageName == FacebookPlusPin.packageName && savedVersion == FacebookPlusPin.versionName
+    fun reuseSavedApk(packageName: String?, savedVersion: String?, pinVersion: String?): Boolean =
+        packageName == FacebookPlusPin.packageName &&
+            !pinVersion.isNullOrBlank() &&
+            savedVersion == pinVersion
 
-    fun nextOnPinFailure(): ApkSourceStep = ApkSourceStep.DownloadInstructions
+    fun nextOnPinFailure(): ApkSourceStep = ApkSourceStep.ApkAvailability
 
     fun storageThresholdBytes(packageName: String?): Long =
         if (packageName == FacebookPlusPin.packageName) FACEBOOK_STORAGE_THRESHOLD_BYTES

@@ -24,6 +24,12 @@ interface ComplexParameter<T : Parcelable>
 @Serializable
 object HomeScreen
 
+@Serializable
+object FacebookPlusHome
+
+@Serializable
+object Settings
+
 /** A part of the settings as a page of its own, named by its [app.morphe.manager.ui.screen.settings.SettingsSubpage]. */
 @Serializable
 data class SettingsDetail(val subpage: String)

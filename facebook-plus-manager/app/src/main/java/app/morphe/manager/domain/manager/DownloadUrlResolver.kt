@@ -7,12 +7,9 @@ package app.morphe.manager.domain.manager
 
 import android.os.Build
 import android.util.Log
-import app.morphe.manager.domain.facebookplus.FacebookPlusPin
 import app.morphe.manager.network.api.MorpheAPI
 import app.morphe.manager.util.KnownApps
-import app.morphe.manager.util.MORPHE_API_URL
 import app.morphe.manager.util.tag
-import io.ktor.http.encodeURLPath
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.URI
 import java.net.URLEncoder
@@ -32,10 +29,9 @@ class DownloadUrlResolver(private val morpheAPI: MorpheAPI) {
      * says what the user will actually get.
      */
     suspend fun resolve(packageName: String, version: String?): String {
-        if (packageName == FacebookPlusPin.packageName) return FacebookPlusPin.apkMirrorUrl
         return withTimeoutOrNull(RESOLVE_TIMEOUT) { follow(packageName, version) } ?: run {
             Log.w(tag, "Timed out resolving the download page")
-            webSearchUrl(packageName, version)
+            DownloadSearchUrls.facebookFallbackUrl(packageName, version) ?: webSearchUrl(packageName, version)
         }
     }
 
@@ -45,7 +41,7 @@ class DownloadUrlResolver(private val morpheAPI: MorpheAPI) {
 
         var resolved = morpheAPI.resolveRedirect(searchUrl) ?: run {
             Log.w(tag, "No redirect location for: $searchUrl")
-            return webSearchUrl(packageName, version)
+            return DownloadSearchUrls.facebookFallbackUrl(packageName, version) ?: webSearchUrl(packageName, version)
         }
 
         repeat(MAX_REDIRECTS) {
@@ -56,19 +52,15 @@ class DownloadUrlResolver(private val morpheAPI: MorpheAPI) {
         }
 
         Log.w(tag, "Gave up after $MAX_REDIRECTS redirects")
-        return webSearchUrl(packageName, version)
+        return DownloadSearchUrls.facebookFallbackUrl(packageName, version) ?: webSearchUrl(packageName, version)
     }
 
     /** The unfollowed API URL, standing in for the destination until [resolve] has one. */
-    fun apiSearchUrl(packageName: String, version: String?): String {
-        if (packageName == FacebookPlusPin.packageName) return FacebookPlusPin.apkMirrorUrl
-        val query = "$packageName~${version ?: "any"}~${Build.SUPPORTED_ABIS.first()}".encodeURLPath()
-        return "$MORPHE_API_URL/v2/web-search/$query"
-    }
+    fun apiSearchUrl(packageName: String, version: String?): String =
+        DownloadSearchUrls.apiSearchUrl(packageName, version, Build.SUPPORTED_ABIS.first())
 
     /** Used when the API is unreachable, so the user still lands on something useful. */
     fun webSearchUrl(packageName: String, version: String?): String {
-        if (packageName == FacebookPlusPin.packageName) return FacebookPlusPin.apkMirrorUrl
         val architecture = if (packageName == KnownApps.YOUTUBE_MUSIC) {
             " (${Build.SUPPORTED_ABIS.first()})"
         } else {

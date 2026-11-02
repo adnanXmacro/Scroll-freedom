@@ -27,7 +27,6 @@ fun UpdatesItems(
     val allowMeteredUpdates by prefs.allowMeteredUpdates.getAsState()
     val useManagerPrereleases by prefs.useManagerPrereleases.getAsState()
     val usePatchesPrereleases by prefs.bundlePrereleasesEnabled.getAsState()
-    val useExpertMode by prefs.useExpertMode.getAsState()
     val showPrereleaseWarning = remember { mutableStateOf(false) }
 
     fun applyManagerPrereleases() {
@@ -78,7 +77,4 @@ fun UpdatesItems(
         subtitle = stringResource(R.string.settings_advanced_updates_allow_metered_description)
     )
 
-    if (useExpertMode) {
-        GitHubPatSettingsItem(settingsViewModel)
-    }
 }

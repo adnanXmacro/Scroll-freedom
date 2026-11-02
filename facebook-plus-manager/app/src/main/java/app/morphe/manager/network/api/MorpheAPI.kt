@@ -475,14 +475,11 @@ class MorpheAPI(
         val usePrereleases = prefs.useManagerPrereleases.get()
         val branch = if (usePrereleases) "dev" else "main"
 
-        val candidate = if (USE_MANAGER_DIRECT_JSON) {
-            getManagerFromJson(branch).fallbackTo {
-                Log.w(tag, "Manager JSON unavailable, falling back to GitHub API")
-                getManagerFromGitHub()
+        val candidate = getManagerFromJson(branch).getOrNull()?.takeIf { asset ->
+            app.morphe.manager.domain.manager.ManagerUpdatePolicy.isAllowedDownloadUrl(asset.downloadUrl).also { allowed ->
+                if (!allowed) Log.w(tag, "Manager update URL is not this repo; ignoring ${asset.downloadUrl}")
             }
-        } else {
-            getManagerFromGitHub()
-        }.getOrNull()
+        }
 
         // Return only if the remote version is strictly newer than what's installed. The stable
         // channel offers stable builds alone: merging dev into main carries the dev release file

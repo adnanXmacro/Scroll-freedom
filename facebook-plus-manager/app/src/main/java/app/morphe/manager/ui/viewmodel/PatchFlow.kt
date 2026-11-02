@@ -33,7 +33,6 @@ import app.morphe.manager.domain.installer.InstallerManager
 import app.morphe.manager.domain.installer.RootInstaller
 import app.morphe.manager.domain.manager.*
 import app.morphe.manager.domain.repository.*
-import app.morphe.manager.patcher.util.NativeLibs
 import app.morphe.manager.patcher.patch.*
 import app.morphe.manager.patcher.runtime.PatcherProcesses
 import app.morphe.manager.patcher.patch.PatchBundleInfo.Extensions.toPatchSelection
@@ -404,29 +403,29 @@ class PatchFlow(
             session = session?.copy(hiddenSources = hiddenJob.await())
         }
 
-        if (FacebookPlusFlow.skipApkAvailability(packageName) && session?.stockAppInstalled == true) {
-            dialogs.advanceTo(HomeDialog.StockFacebookBlocks)
+        val current = session ?: return
+        if (packageName == FacebookPlusPin.packageName && current.recommendedVersion?.version.isNullOrBlank()) {
+            messages.show(R.string.home_facebook_plus_bundle_loading)
+            endRun()
             return
         }
-
-        val current = session ?: return
-        val facebookSavedMatchesPin = FacebookPlusFlow.reuseSavedApk(packageName, current.savedApk?.version)
+        val facebookSavedMatchesPin = FacebookPlusFlow.reuseSavedApk(
+            packageName,
+            current.savedApk?.version,
+            current.recommendedVersion?.version,
+        )
         val shouldAutoUseSaved = !expertMode &&
                 current.savedApk != null &&
                 (
                     facebookSavedMatchesPin ||
                     (
                         current.recommendedVersion != null &&
-                        current.savedApk.version == current.recommendedVersion.version &&
-                        !FacebookPlusFlow.skipApkAvailability(packageName)
+                        current.savedApk.version == current.recommendedVersion.version
                     )
                 )
 
         if (shouldAutoUseSaved) {
             handleSavedApkSelection()
-        } else if (FacebookPlusFlow.skipApkAvailability(packageName)) {
-            dialogs.advanceTo(HomeDialog.DownloadInstructions)
-            resolveDownloadRedirect()
         } else {
             dialogs.advanceTo(HomeDialog.ApkAvailability)
         }
@@ -766,8 +765,21 @@ class PatchFlow(
         skipSplitCheck: Boolean = false
     ) {
         if (session?.packageName == FacebookPlusPin.packageName) {
+            val pinVersion = session?.recommendedVersion?.version
+            if (pinVersion.isNullOrBlank()) {
+                selectedApp.discard()
+                messages.show(R.string.home_facebook_plus_bundle_loading)
+                endRun()
+                return
+            }
+            val versionCodes = session?.compatibleVersions.orEmpty()
+                .filter { it.target.version == pinVersion }
+                .mapNotNull { it.buildCodes }
+                .flatten()
+                .map { it.toLong() }
+                .toSet()
             val abis = when (selectedApp) {
-                is SelectedApp.Local -> NativeLibs.extractAbisFromApk(selectedApp.file).toSet()
+                is SelectedApp.Local -> FacebookPlusPin.abisOf(selectedApp.file)
                 is SelectedApp.Installed -> emptySet()
             }
             val pinResult = FacebookPlusPin.validate(
@@ -776,13 +788,13 @@ class PatchFlow(
                     versionName = selectedApp.version.orEmpty(),
                     versionCode = selectedApp.versionCode ?: 0L,
                     abis = abis,
-                )
+                ),
+                FacebookPlusPin.fromCatalog(pinVersion, versionCodes),
             )
             if (pinResult != FacebookPlusPin.Result.Ok) {
                 selectedApp.discard()
                 messages.show(R.string.home_facebook_plus_wrong_apk)
-                dialogs.advanceTo(HomeDialog.DownloadInstructions)
-                resolveDownloadRedirect()
+                dialogs.advanceTo(HomeDialog.ApkAvailability)
                 return
             }
         }

@@ -152,12 +152,12 @@ fun FilesSection(
                 onImportKeystore = { importKeystoreLauncher() },
                 onExportKeystore = {
                     if (isTV) importExportViewModel.exportKeystoreToDownloads()
-                    else exportKeystoreLauncher.launch("Morphe.keystore")
+                    else exportKeystoreLauncher.launch("FacebookPlusManager.keystore")
                 },
                 onImportSettings = { importSettingsLauncher() },
                 onExportSettings = {
                     if (isTV) importExportViewModel.exportManagerSettingsToDownloads()
-                    else exportSettingsLauncher.launch("morphe_manager_settings.json")
+                    else exportSettingsLauncher.launch("facebook_plus_manager_settings.json")
                 }
             )
         }
@@ -424,9 +424,6 @@ private fun OriginalApkItems(
     val context = LocalContext.current
     val isTV = remember { context.isAndroidTv() }
     val useCustomFilePicker by settingsViewModel.prefs.useCustomFilePicker.getAsState()
-    val trustedApkDownloadHelpers by settingsViewModel.prefs.trustedApkDownloadHelpers.getAsState()
-    // Keeps the entry hidden until a helper is installed, so it never advertises a third-party app
-    val apkDownloadHelpers = rememberApkDownloadHelpers(settingsViewModel)
 
     // TV always uses the custom picker regardless of this toggle, so hide it to avoid confusion
     if (!isTV) {
@@ -440,16 +437,4 @@ private fun OriginalApkItems(
         )
     }
 
-    if (apkDownloadHelpers.isNotEmpty()) {
-        SettingsItem(
-            onClick = { onOpenSubpage(SettingsSubpage.APK_DOWNLOAD_HELPERS) },
-            title = stringResource(R.string.settings_system_apk_download_helper),
-            subtitle = stringResource(
-                R.string.settings_system_apk_download_helper_trusted_count,
-                apkDownloadHelpers.count { it.packageName in trustedApkDownloadHelpers },
-                apkDownloadHelpers.size
-            ),
-            leadingContent = { ThemedIcon(icon = MaterialSymbols.Rounded.Download) }
-        )
-    }
 }

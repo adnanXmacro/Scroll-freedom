@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.morphe.manager.R
+import app.morphe.manager.domain.facebookplus.FacebookPlusFlow
 import app.morphe.manager.domain.facebookplus.FacebookPlusPin
 import app.morphe.manager.patcher.patch.PatchSourceRef
 import app.morphe.manager.ui.screen.shared.*
@@ -671,7 +672,9 @@ private fun ResultSummary(version: String?, patchCount: Int, sources: List<Patch
             InfoRow(
                 icon = MaterialSymbols.Rounded.Folder_code,
                 label = stringResource(R.string.patcher_field_source),
-                value = sources.joinToString(", ") { listOfNotNull(it.name, it.version).joinToString(" ") }
+                value = sources.joinToString(", ") {
+                    listOfNotNull(FacebookPlusFlow.publicSourceName(it.name), it.version).joinToString(" ")
+                }
             )
         }
     }

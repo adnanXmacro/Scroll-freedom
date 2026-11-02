@@ -26,7 +26,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -48,15 +51,14 @@ import app.morphe.manager.domain.manager.PreferencesManager
 import app.morphe.manager.domain.repository.PatchBundleRepository
 import app.morphe.manager.ui.model.SourceScope
 import app.morphe.manager.ui.model.navigation.*
-import app.morphe.manager.ui.screen.BatchPatcherScreen
-import app.morphe.manager.ui.screen.HomeScreen
 import app.morphe.manager.ui.screen.PatcherScreen
+import app.morphe.manager.ui.screen.facebookplus.FacebookPlusHomeScreen
 import app.morphe.manager.ui.screen.home.*
 import app.morphe.manager.ui.screen.settings.SettingsNavigation
+import app.morphe.manager.ui.screen.settings.SettingsPage
 import app.morphe.manager.ui.screen.settings.SettingsSubpage
 import app.morphe.manager.ui.screen.settings.SettingsSubpageScreen
 import app.morphe.manager.ui.screen.settings.system.LicensesPage
-import app.morphe.manager.ui.screen.settings.system.PatchSelectionsPage
 import app.morphe.manager.ui.screen.shared.AnimatedBackground
 import app.morphe.manager.ui.screen.shared.Animations
 import app.morphe.manager.ui.screen.shared.LocalBackdropHaze
@@ -381,7 +383,7 @@ private fun MorpheManager(vm: MainViewModel) {
     // Handle deep link source
     LaunchedEffect(vm.pendingDeepLinkSource) {
         vm.pendingDeepLinkSource?.let { source ->
-            navController.popBackStack(HomeScreen, false)
+            navController.popBackStack(FacebookPlusHome, false)
             homeViewModel.handleDeepLinkAddSource(source)
             vm.pendingDeepLinkSource = null
         }
@@ -390,7 +392,7 @@ private fun MorpheManager(vm: MainViewModel) {
     // Handle .mpp file opened from file manager
     LaunchedEffect(vm.pendingMppUri) {
         vm.pendingMppUri?.let { uri ->
-            navController.popBackStack(HomeScreen, false)
+            navController.popBackStack(FacebookPlusHome, false)
             homeViewModel.setPendingMpp(uri)
             vm.pendingMppUri = null
         }
@@ -430,8 +432,8 @@ private fun MorpheManager(vm: MainViewModel) {
     LaunchedEffect(vm.pendingPatchPackage) {
         vm.pendingPatchPackage?.let { packageName ->
             vm.pendingPatchPackage = null
-            navController.popBackStack(HomeScreen, false)
-            navController.getBackStackEntry(HomeScreen)
+            navController.popBackStack(FacebookPlusHome, false)
+            navController.getBackStackEntry(FacebookPlusHome)
                 .savedStateHandle["patch_trigger_package"] = packageName
         }
     }
@@ -446,14 +448,7 @@ private fun MorpheManager(vm: MainViewModel) {
     }
 
     LaunchedEffect(vm.approvedBatchPatch) {
-        vm.approvedBatchPatch?.let { request ->
-            vm.consumeApprovedBatch()
-            navController.popBackStack(HomeScreen, false)
-            navController.navigateComplex(
-                BatchPatcher,
-                BatchPatcher.ViewModelParams(targets = request.targets)
-            )
-        }
+        vm.approvedBatchPatch?.let { vm.consumeApprovedBatch() }
     }
 
     DialogHost(target = vm.batchPatchConfirmation) { request ->
@@ -468,7 +463,7 @@ private fun MorpheManager(vm: MainViewModel) {
     // Handle .apk file shared via share sheet
     LaunchedEffect(vm.pendingExternalApkUri) {
         vm.pendingExternalApkUri?.let { uri ->
-            navController.popBackStack(HomeScreen, false)
+            navController.popBackStack(FacebookPlusHome, false)
             vm.pendingExternalApkUri = null
             homeViewModel.handleExternalApkUri(uri)
         }
@@ -556,7 +551,7 @@ private fun MorpheManager(vm: MainViewModel) {
         // All content on top of background
         NavHost(
             navController = navController,
-            startDestination = HomeScreen,
+            startDestination = FacebookPlusHome,
             modifier = if (showOnboarding) Modifier.hazeSource(tourHaze) else Modifier,
             // Every screen opens deeper than the main one along Material's shared Z axis, rather than
             // sideways, which the main screen's own pages already move. Back runs it in reverse, and
@@ -568,13 +563,10 @@ private fun MorpheManager(vm: MainViewModel) {
             predictivePopEnterTransition = { sharedAxisZEnter(forward = false) },
             predictivePopExitTransition = { Animations.predictiveBackExit }
         ) {
-            composable<HomeScreen> { entry ->
-                val bundleUpdateProgress by homeViewModel.bundleUpdateProgress.collectAsStateWithLifecycle(null)
+            composable<FacebookPlusHome> { entry ->
                 val patchTriggerPackage by entry.savedStateHandle.getStateFlow<String?>("patch_trigger_package", null)
                     .collectAsStateWithLifecycle()
 
-                // If opened from an FCM notification, trigger an update check.
-                // vm.pendingUpdateCheck is set in onNewIntent() and reset here after handling.
                 LaunchedEffect(vm.pendingUpdateCheck) {
                     if (vm.pendingUpdateCheck) {
                         homeViewModel.patchBundleRepository.updateCheck()
@@ -583,23 +575,17 @@ private fun MorpheManager(vm: MainViewModel) {
                     }
                 }
 
-                HomeScreen(
-                    settingsNavigation = remember(navController, showOnboarding) {
-                        navController.settingsNavigation(startTour = startOnboardingTour.takeUnless { showOnboarding })
+                FacebookPlusHomeScreen(
+                    settingsNavigation = remember(navController) {
+                        navController.settingsNavigation(startTour = null)
                     },
-                    onboardingState = onboardingState.takeIf { showOnboarding },
+                    onOpenSettings = { navController.navigate(Settings) { launchSingleTop = true } },
                     onStartQuickPatch = { params ->
                         entry.lifecycleScope.launch {
                             navController.navigateComplex(Patcher, params)
                         }
                     },
-                    onStartBatchPatch = { targets ->
-                        entry.lifecycleScope.launch {
-                            navController.navigateComplex(BatchPatcher, BatchPatcher.ViewModelParams(targets))
-                        }
-                    },
                     homeViewModel = homeViewModel,
-                    bundleUpdateProgress = bundleUpdateProgress,
                     patchTriggerPackage = patchTriggerPackage,
                     onPatchTriggerHandled = {
                         entry.savedStateHandle["patch_trigger_package"] = null
@@ -607,19 +593,15 @@ private fun MorpheManager(vm: MainViewModel) {
                 )
             }
 
-            composable<BatchPatcher> { entry ->
-                val params = entry.getComplexArg<BatchPatcher.ViewModelParams>() ?: return@composable
-                BatchPatcherScreen(
-                    targets = params.targets,
-                    onBackClick = {
-                        patchingCompleted.value = false
-                        navController.popBackStack()
+            composable<Settings> {
+                val navigationBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                SettingsPage(
+                    homeViewModel = homeViewModel,
+                    navigation = remember(navController) {
+                        navController.settingsNavigation(startTour = null)
                     },
-                    onStartTour = startOnboardingTour,
-                    onDeclineTour = declineOnboardingTour,
-                    onAppStateChanged = homeViewModel.apps::notifyAppStateChanged,
-                    onBackgroundSpeedChange = { patcherBackgroundSpeed.floatValue = it },
-                    onPatchingCompleted = { patchingCompleted.value = true }
+                    bottomBarHeight = navigationBar,
+                    onBack = { navController.popBackStack(FacebookPlusHome, false) }
                 )
             }
 
@@ -630,7 +612,7 @@ private fun MorpheManager(vm: MainViewModel) {
                     patcherViewModel.stopCompletionSound()
                     patcherBackgroundSpeed.floatValue = 1f
                     patchingCompleted.value = false
-                    navController.popBackStack()
+                    navController.popBackStack(FacebookPlusHome, false)
                 }
                 PatcherScreen(
                     onBackClick = leavePatcher,
@@ -651,19 +633,10 @@ private fun MorpheManager(vm: MainViewModel) {
                     subpage = SettingsSubpage.valueOf(entry.toRoute<SettingsDetail>().subpage),
                     homeViewModel = homeViewModel,
                     navigation = remember(navController) {
-                        // The tour runs over the main screen, so it starts once back there
-                        navController.settingsNavigation(startTour = {
-                            navController.popBackStack(HomeScreen, false)
-                            startOnboardingTour()
-                        })
+                        navController.settingsNavigation(startTour = null)
                     },
-                    // Back to the main screen however it was asked for, so a second tap never leaves it
-                    onBack = { navController.popBackStack(HomeScreen, false) }
+                    onBack = { navController.popBackStack() }
                 )
-            }
-
-            composable<PatchSelections> {
-                PatchSelectionsPage(onBack = { navController.popBackStack(HomeScreen, false) })
             }
 
             composable<Licenses> {
@@ -682,7 +655,7 @@ private fun MorpheManager(vm: MainViewModel) {
 /** Where the settings lead out to, as routes of this navigation, see [SettingsNavigation]. */
 private fun NavController.settingsNavigation(startTour: (() -> Unit)?) = SettingsNavigation(
     openSubpage = { subpage -> navigate(SettingsDetail(subpage.name)) { launchSingleTop = true } },
-    openPatchSelections = { navigate(PatchSelections) { launchSingleTop = true } },
+    openPatchSelections = {},
     openLicenses = { navigate(Licenses) { launchSingleTop = true } },
     startTour = startTour
 )
